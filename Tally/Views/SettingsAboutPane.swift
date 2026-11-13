@@ -7,8 +7,7 @@ extension SettingsView {
     /// Not private: the pane switch that renders it (`SettingsView.paneContent`) is in the other
     /// file, and `private` in Swift is file-scoped.
     var aboutPane: some View {
-        SettingsPage {
-            SettingsPageHeader(title: L("About"), subtitle: L("Version, updates and what Tally sends."))
+        SettingsPage(title: L("About"), subtitle: L("Version, updates and what Tally sends.")) {
             // A development build says so once, here, rather than in a hover on the DEV tag.
             SettingsDevBanner(message: L("Runs beside the installed app and never updates itself."))
             SettingsIdentityCard(mark: overlayEditionMark,

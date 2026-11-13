@@ -1,89 +1,53 @@
 import SwiftUI
 
-// The Settings window's shared page vocabulary (B-2526), laid out like Jetto Voice's settings so the
-// two apps read as one family: a page header (title, subtitle, page-level actions on the right),
-// section titles OUTSIDE their card, one card per section, and rows at two type sizes (title,
-// secondary description at most two lines). The type scale lives in `SettingsType`. Every pane
-// builds from these; nothing here knows about a particular pane.
+// The Settings window's shared page vocabulary (B-2526, rebuilt on the skeleton in B-4474): a page
+// is a fixed header (title, subtitle, page-level actions on the right) over a scroll view of its
+// own, sections have their title OUTSIDE their card, and rows come at two type sizes (title,
+// secondary description at most two lines). The numbers live in `PageSkeleton` and `SettingsType`;
+// the elements here are this app's spellings of the skeleton's, adding its strings and tooltips.
+// Every pane builds from these; nothing here knows about a particular pane.
 
-/// A page: header first, then sections, `SettingsChrome.sectionGap` apart.
-struct SettingsPage<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: SettingsChrome.sectionGap) { content }
-    }
-}
-
-// MARK: - Page header
-
-/// Bold title over a secondary subtitle (two lines at most, so a long CJK sentence still
-/// says its point), with the page's own actions on the right.
-struct SettingsPageHeader<Trailing: View>: View {
+/// A page: the fixed header, then the sections in a scroll view of the page's own, `sectionGap` apart.
+/// The subtitle holds one line; its full text is the hover.
+struct SettingsPage<Trailing: View, Content: View>: View {
     let title: String
     var subtitle: String?
     @ViewBuilder var trailing: Trailing
+    @ViewBuilder var content: Content
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: SettingsType.pageTitle, weight: .bold))
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: SettingsType.pageSubtitle))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(.leading, 2)
-            Spacer(minLength: 12)
-            HStack(spacing: 8) { trailing }
+        MainPageScroll(title: Text(title), subtitle: subtitleText, trailing: trailing) {
+            VStack(alignment: .leading, spacing: SettingsChrome.sectionGap) { content }
         }
     }
-}
 
-extension SettingsPageHeader where Trailing == EmptyView {
-    init(title: String, subtitle: String? = nil) {
-        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    @ViewBuilder
+    private var subtitleText: some View {
+        if let subtitle, !subtitle.isEmpty { Text(subtitle).tallyTooltip(subtitle) } else { EmptyView() }
     }
 }
 
-/// The face of a page-level action: 28 high, a card surface, a semibold icon and a medium title.
-/// `destructive` turns icon and title red and the hover wash red. Public so a `Menu` can wear it.
-struct PageActionLabel: View {
-    let title: String
-    let symbol: String
-    var destructive = false
-    var hovered = false
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        HStack(spacing: 5) {
-            Image(systemName: symbol).font(.system(size: SettingsType.actionIcon, weight: .semibold))
-            Text(title)
-        }
-        .font(.system(size: SettingsType.action, weight: .medium))
-        .foregroundStyle(destructive ? Color(nsColor: .systemRed) : Color.primary)
-        .padding(.horizontal, 10)
-        .frame(height: 28)
-        .background(shape.fill(destructive && hovered ? Color(nsColor: .systemRed).opacity(0.08) : .clear))
-        .modifier(SettingsCardSurface(cornerRadius: 8, highlighted: hovered))
-        .contentShape(shape)
+extension SettingsPage where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title: title, subtitle: subtitle, trailing: { EmptyView() }, content: content)
     }
 }
+
+/// The face of a page-level action: the skeleton's button (32 high), icon optional. Public so a
+/// `Menu` can wear it.
+typealias PageActionLabel = PageButtonLabel
 
 /// A page-level action button (Add account, Install all, Remove all).
 struct PageActionButton: View {
     let title: String
-    let symbol: String
+    var symbol: String?
     var destructive = false
     let action: () -> Void
     @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
-            PageActionLabel(title: title, symbol: symbol, destructive: destructive, hovered: hovered)
+            PageButtonLabel(title: title, symbol: symbol, destructive: destructive, hovered: hovered)
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -93,88 +57,60 @@ struct PageActionButton: View {
 
 // MARK: - Sections and cards
 
-/// A section's title above its card: optional icon (16 wide), semibold secondary, an optional
-/// count, a hairline running to the trailing edge. Nothing sits to its right.
-struct SettingsSectionTitle<Icon: View>: View {
-    let title: String
-    var count: Int?
-    var icon: Icon?
-    @Environment(\.displayScale) private var displayScale
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let icon { icon.font(.system(size: SettingsType.sectionIcon)).frame(width: 16) }
-            Text(title).font(.system(size: SettingsType.sectionTitle, weight: .semibold))
-            if let count {
-                Text("\(count)").font(.system(size: SettingsType.count).monospacedDigit()).foregroundStyle(.tertiary)
-            }
-            Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1 / displayScale).padding(.leading, 2)
-        }
-        .foregroundStyle(.secondary)
-        .padding(.leading, 4)
-    }
-}
-
-/// A card: rounded 12, white on the page in light mode, rows' hover wash clipped to its corners.
+/// A card: the skeleton's card A, with its rows' tooltip obstacles measured.
 struct SettingsCard<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) { content }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .tallyTooltipObstacles()
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .modifier(SettingsCardSurface())
+        GroupCard { content }.tallyTooltipObstacles()
     }
 }
 
-/// A titled group: title outside, one card below it (at most five rows by design; an account table
-/// or a machine list is the exception). `icon` is any small view (an SF Symbol, a provider mark).
+/// A titled group: title outside, an optional `note` under it, one card below (at most five rows by
+/// design; an account table or a machine list is the exception; `card: false` leaves the content
+/// bare, for a tile row). `icon` is any small view (an SF Symbol, a provider mark).
 struct SettingsSection<Icon: View, Content: View>: View {
     let title: String
     var count: Int?
     var icon: Icon?
+    var note: String?
+    var card = true
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SettingsChrome.headerToCard) {
-            SettingsSectionTitle(title: title, count: count, icon: icon)
-            SettingsCard { content }
+        PageSection(title: title, count: count, icon: icon, note: note.map { Text($0) }, card: false) {
+            if card { SettingsCard { content } } else { content }
         }
     }
 }
 
 extension SettingsSection where Icon == Image {
-    init(_ title: String, symbol: String, count: Int? = nil, @ViewBuilder content: () -> Content) {
-        self.init(title: title, count: count, icon: Image(systemName: symbol), content: content)
+    init(_ title: String, symbol: String, count: Int? = nil, note: String? = nil, card: Bool = true,
+         @ViewBuilder content: () -> Content) {
+        self.init(title: title, count: count, icon: Image(systemName: symbol), note: note, card: card,
+                  content: content)
     }
 }
 
 extension SettingsSection where Icon == EmptyView {
-    init(_ title: String, count: Int? = nil, @ViewBuilder content: () -> Content) {
-        self.init(title: title, count: count, icon: nil, content: content)
+    init(_ title: String, count: Int? = nil, note: String? = nil, card: Bool = true,
+         @ViewBuilder content: () -> Content) {
+        self.init(title: title, count: count, icon: nil, note: note, card: card, content: content)
     }
 }
 
 extension SettingsSection {
     /// Any icon view, e.g. `ProviderIconView`.
-    init(_ title: String, count: Int? = nil, @ViewBuilder icon: () -> Icon, @ViewBuilder content: () -> Content) {
-        self.init(title: title, count: count, icon: icon(), content: content)
+    init(_ title: String, count: Int? = nil, note: String? = nil, card: Bool = true,
+         @ViewBuilder icon: () -> Icon, @ViewBuilder content: () -> Content) {
+        self.init(title: title, count: count, icon: icon(), note: note, card: card, content: content)
     }
 }
 
 // MARK: - Rows
 
-/// The line between two rows: 1 physical pixel, from the text column (`SettingsChrome.dividerInsetIcon`
-/// with an icon, `dividerInsetPlain` without).
-struct SettingsDivider: View {
-    var inset: CGFloat = SettingsChrome.dividerInsetIcon
-    @Environment(\.displayScale) private var displayScale
-
-    var body: some View {
-        Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1 / displayScale).padding(.leading, inset)
-    }
-}
+/// The line between two rows (`GroupDivider`).
+typealias SettingsDivider = GroupDivider
 
 /// The small `info.circle` after a row title; the hover text rides on the whole label
 /// (`SettingsRowLabel`), this only says that there is one.
@@ -231,22 +167,14 @@ struct SettingsRow<Accessory: View>: View {
     var info: String?
     var tooltipPreview: TallyTooltip.PreviewTarget?
     @ViewBuilder var accessory: Accessory
-    @State private var hovered = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+        GroupRowFrame {
             SettingsRowLabel(title: title, subtitle: subtitle, icon: icon, info: info,
                              tooltipPreview: tooltipPreview)
-            Spacer(minLength: 12)
+        } accessory: {
             accessory.fixedSize().tallyTooltipObstacle()
         }
-        .padding(.horizontal, SettingsChrome.rowInsetH)
-        .padding(.vertical, SettingsChrome.rowInsetV)
-        .frame(minHeight: SettingsChrome.rowMinHeight)
-        .background(Color.primary.opacity(hovered ? 0.03 : 0))
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 }
-        .animation(.easeInOut(duration: 0.15), value: hovered)
     }
 }
 
@@ -279,7 +207,7 @@ struct SettingsSubRow<Accessory: View>: View {
     @ViewBuilder var accessory: Accessory
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
+        GroupSubRowFrame {
             HStack(spacing: 4) {
                 Text(title)
                     .font(.system(size: SettingsType.rowSubtitle))
@@ -290,13 +218,9 @@ struct SettingsSubRow<Accessory: View>: View {
             }
             .tallyTooltipObstacle()
             .tallyTooltip(info ?? "", forced: tooltipPreview.map(TallyTooltip.previewForced) ?? false, beside: true)
-            Spacer(minLength: 12)
+        } accessory: {
             accessory.fixedSize().tallyTooltipObstacle()
         }
-        .padding(.leading, SettingsChrome.dividerInsetIcon)
-        .padding(.trailing, SettingsChrome.rowInsetH)
-        .padding(.vertical, 6)
-        .frame(minHeight: 36)
     }
 }
 
@@ -344,7 +268,6 @@ struct SettingsNoticeBar<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         HStack(spacing: 12) {
             Image(systemName: symbol).font(.system(size: SettingsType.noticeIcon)).foregroundStyle(tint)
             VStack(alignment: .leading, spacing: 2) {
@@ -360,10 +283,7 @@ struct SettingsNoticeBar<Trailing: View>: View {
             Spacer(minLength: 8)
             trailing
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(shape.fill(tint.opacity(0.06)))
-        .overlay(shape.strokeBorder(tint.opacity(0.2), lineWidth: 0.5))
+        .modifier(NoticeSurface(tint: tint))
     }
 
     private var tint: Color { kind == .info ? .accentColor : TallyColor.warning }

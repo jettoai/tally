@@ -1,19 +1,18 @@
 import SwiftUI
 
 /// Preferences as a System Settings-style split: a fixed section sidebar on the left, one
-/// section's grouped card on the right.
+/// section's page on the right.
 ///
 /// THE WINDOW IS ONE SIZE ON EVERY PANE (`SettingsChrome.windowWidth` by `windowHeight`, written by
-/// `SettingsWindowController.applyFixedSize`). This view reports no size to the window: a short
-/// pane sits at the top of the column with the page colour below it, a long one scrolls in the
-/// column. The window used to follow the pane in front, so it grew and shrank under the click on
-/// every sidebar switch (Albert, 2026-08-23, 2026-10-10, 2026-11-12).
+/// `SettingsWindowController.applyFixedSize`). This view reports no size to the window: every page
+/// owns a fixed header and a scroll view of its own (`MainPageScroll`), so a short page sits at the
+/// top with the page colour below it and a long one scrolls under its header. The window used to
+/// follow the pane in front, so it grew and shrank under the click on every sidebar switch (Albert,
+/// 2026-08-23, 2026-10-10, 2026-11-12).
 struct SettingsView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
 
-    /// The sidebar row under the pointer, for its hover wash.
-    @State private var hoveredSection: Section?
     /// A request to scroll the pane in front to the group tagged with this id (`.id(...)` on the
     /// group); consumed on arrival. Set it together with `select(_:)` to land on a group of another
     /// pane. Not private: the panes live in other files, and `@State` cannot be added by extension.
@@ -61,28 +60,18 @@ struct SettingsView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 // Up behind the transparent titlebar too, so the sidebar runs to the top edge.
                 .background(SettingsChrome.sidebar.ignoresSafeArea())
-            // Long panes scroll here, the whole column at once. A short pane stays at the top.
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: 0).id(Self.paneTopAnchor)
-                        pane
-                            .padding(.horizontal, SettingsChrome.paneInsetH)
-                            .padding(.top, SettingsChrome.paneInsetTop)
-                            .padding(.bottom, SettingsChrome.paneInsetBottom)
-                    }
-                }
-                .onChange(of: scrollTarget) { _, target in
-                    guard let target else { return }
-                    proxy.scrollTo(target, anchor: .top)
-                    scrollTarget = nil
-                }
-            }
-            // A card plus the two insets (`SettingsChrome.contentWidth`): the dense account rows
-            // need the room for an address beside the name, plan, both figures and two switches.
-            .frame(width: SettingsChrome.contentWidth)
-            .background(SettingsChrome.page.ignoresSafeArea())
+            // Each page owns its header and its scroll view (`MainPageScroll`); this column only
+            // stacks them and hands the one in front the column's full height.
+            pane
+                .frame(width: SettingsChrome.contentWidth)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(SettingsChrome.page.ignoresSafeArea())
         }
+        // The page's top is the window's top: the header's 104 and the title at 36 count from the edge.
+        .ignoresSafeArea()
+        .environment(\.pageSkeleton, SettingsChrome.skeleton)
+        .environment(\.pageScrollTarget, $scrollTarget)
+        .environment(\.pageStartsScrolled, SettingsCaptureLaunch.opensScrolled)
         // No window-wide control size (it was `.small`): switches, menus and buttons are regular, and
         // the account table, the one place that wants small switches, sets its own.
         // Key `.id` on the language so switching it rebuilds the whole tree and re-localizes every
@@ -125,71 +114,56 @@ struct SettingsView: View {
         SettingsTabBench.Shown(section: section.rawValue, sections: shownSections.map(\.rawValue))
     }
 
+    /// The brand row (the wordmark only, B-4474), the tag row (version, edition, DEV) and the
+    /// navigation; a private build's footer is pinned to the foot by the sidebar's spacer.
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            rows
-                .padding(SettingsChrome.sidebarInset)
-            // Pushes a private build's footer to the foot of the window; nothing here is measured.
-            Spacer(minLength: 0)
+        PageSidebar(items: shownSections.map {
+            PageSidebarItem(id: $0, title: sidebarTitle($0), symbol: sidebarSymbol($0))
+        }, selection: section, select: select) {
+            TallyWordmarkView(glyphHeight: 20)
+        } tags: {
+            HStack(spacing: 6) {
+                if let version = BuildVariant.version { versionChip(version) }
+                OverlayApp.titlebarEditionBadge
+                if BuildVariant.isDev { TallyDevTagView() }
+            }
+        } footer: {
             overlaySidebarFooter
         }
     }
 
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: SettingsChrome.sidebarRowSpacing) {
-            ForEach(shownSections, id: \.self) { item in
-                let selected = section == item
-                Button {
-                    select(item)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: sidebarSymbol(item))
-                            .font(.system(size: SettingsType.sidebar))
-                            .frame(width: SettingsChrome.sidebarIconSlot)
-                        Text(sidebarTitle(item)).font(.system(size: SettingsType.sidebar, weight: selected ? .medium : .regular))
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, SettingsChrome.sidebarRowPadH)
-                    .padding(.vertical, SettingsChrome.sidebarRowPadV)
-                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.primary.opacity(selected ? 0.08 : hoveredSection == item ? 0.06 : 0))
-                    )
-                    .foregroundStyle(selected ? Color.primary : Color.secondary)
-                }
-                .buttonStyle(.plain)
-                .onHover { inside in
-                    if inside { hoveredSection = item } else if hoveredSection == item { hoveredSection = nil }
-                }
-            }
-        }
+    private func versionChip(_ version: String) -> some View {
+        Text(verbatim: "v\(version)")
+            .font(.system(size: 12)).foregroundStyle(.secondary)
+            .padding(.horizontal, 8).frame(height: PageSkeleton.tagsHeight)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.07)))
     }
 
     /// THE ONE WAY A PANE CHANGES (sidebar click and the Launch pane's link to Integrations).
-    /// A new pane starts at its top: every pane shares the one scroll view, so without the scroll
-    /// request the new pane would open at whatever offset the last one was left at. The Launch
-    /// link sets `scrollTarget` again right after this, and only the last value is acted on.
+    /// A new pane starts at its top because the pane that stops being in front scrolls itself back
+    /// up while nobody can see it (`MainPageScroll`), so nothing is asked of the arriving one. The
+    /// Launch link sets `scrollTarget` right after this, for a group of the pane it lands on.
     private func select(_ item: Section) {
         guard item != section else { return }
         section = item
-        scrollTarget = Self.paneTopAnchor
     }
 
-    /// ONLY THE SELECTED PANE HAS A HEIGHT, which keeps the scroll length equal to the pane in front:
-    /// laid out together, About would scroll through as much blank page as Integrations is tall.
+    /// ONLY THE SELECTED PANE HAS A HEIGHT: the one in front gets the column's whole height (its
+    /// header and scroll view fill it), the others none.
     ///
     /// COLLAPSED RATHER THAN REMOVED. Building only the selected pane would destroy every pane the
     /// user leaves - and a pane here can be holding work: the launch defaults are STAGED against an
     /// explicit Apply (`StagedModelEffortRow`), so a model picked, a glance at another pane and a
     /// click back put the committed model on screen with nothing said (found by review of
     /// 5e9e03d). A waiting pane keeps its state and adds no height; the three lines above the
-    /// frame keep it unseen, unhittable and unread.
+    /// frame keep it unseen, unhittable and unread. NO `fixedSize` ON IT: a pane sized to its content
+    /// would make its scroll view as tall as the page and cut a long page off at the window's foot.
     private var pane: some View {
         ZStack(alignment: .top) {
             ForEach(Section.allCases, id: \.self) { item in
                 paneContent(item)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .environment(\.pageIsActive, section == item)
+                    .environment(\.pageID, item.rawValue)
                     .opacity(section == item ? 1 : 0)
                     .allowsHitTesting(section == item)
                     .accessibilityHidden(section != item)
@@ -197,6 +171,7 @@ struct SettingsView: View {
                     .clipped()
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder
@@ -221,12 +196,9 @@ struct SettingsView: View {
                                          })
         case .display: displayPane
         case .integrations: integrationsRows
-        // The private build's pane: the shared header, then its own titled groups.
+        // The private build's pane: the shared page, then its own titled groups.
         case .overlay:
-            SettingsPage {
-                SettingsPageHeader(title: overlayPaneTitle ?? "", subtitle: overlayPaneSubtitle)
-                overlayPaneRows
-            }
+            SettingsPage(title: overlayPaneTitle ?? "", subtitle: overlayPaneSubtitle) { overlayPaneRows }
         case .about: aboutPane
         }
     }
@@ -234,8 +206,4 @@ struct SettingsView: View {
     /// The `.id` the Integrations pane tags its Shared harness group with (the Launch pane's link
     /// scrolls there through `scrollTarget`).
     static let sharedHarnessAnchor = "integrations.sharedHarness"
-
-    /// The `.id` of the zero-height row above the pane in the scroll view: scrolling to it is
-    /// "back to the top" (`select`).
-    static let paneTopAnchor = "settings.paneTop"
 }

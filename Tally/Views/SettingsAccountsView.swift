@@ -25,14 +25,21 @@ struct SettingsAccountsView: View {
     private let flow = AddAccountStore.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SettingsChrome.sectionGap) {
-            SettingsPageHeader(title: L("Accounts"),
-                               subtitle: L("Every Claude and Codex account Tally reads, side by side.")) {
-                addAccountAction
+        SettingsPage(title: L("Accounts"),
+                     subtitle: L("Every Claude and Codex account Tally reads, side by side."),
+                     trailing: { addAccountAction }) {
+            // The reorder space and the row in hand live INSIDE the page's scroll view, so the rows'
+            // frames and the floating copy share one space whatever the scroll offset.
+            VStack(alignment: .leading, spacing: SettingsChrome.sectionGap) {
+                ForEach(ProviderCatalog.descriptors, id: \.id) { descriptor in
+                    providerGroup(id: descriptor.id, name: descriptor.name)
+                }
             }
-            ForEach(ProviderCatalog.descriptors, id: \.id) { descriptor in
-                providerGroup(id: descriptor.id, name: descriptor.name)
-            }
+            // Merged, not assigned: each provider's card reports only its own rows.
+            .onPreferenceChange(CardFramePreferenceKey.self) { rowFrames.merge($0) { $1 } }
+            // The floating copy of the row in hand, above both cards, tracking the pointer.
+            .overlay { if let rowLift { liftedRow(rowLift) } }
+            .coordinateSpace(name: Self.reorderSpace)
         }
         // One sheet for both provider groups: which one opened it is a preselection, not a
         // different flow, and the sheet lets the user change their mind about it anyway.
@@ -56,11 +63,6 @@ struct SettingsAccountsView: View {
                 beginAddAccount(first)
             }
         }
-        // Merged, not assigned: each provider's card reports only its own rows.
-        .onPreferenceChange(CardFramePreferenceKey.self) { rowFrames.merge($0) { $1 } }
-        // The floating copy of the row in hand, above both cards, tracking the pointer.
-        .overlay { if let rowLift { liftedRow(rowLift) } }
-        .coordinateSpace(name: Self.reorderSpace)
         // Cancellation safety net, mirroring the panel: a cancelled preview vanishes.
         .onChange(of: isRowDragActive) { _, active in if !active { rowLift = nil } }
         .onDisappear { rowLift = nil }
@@ -116,7 +118,7 @@ struct SettingsAccountsView: View {
             // Count only when there is something to count - a "1" badge said nothing. Nothing sits
             // to the title's right: the provider switch is the card's first row, the add-account
             // entry is the page header's.
-            SettingsSectionTitle(title: name, count: items.count > 1 ? items.count : nil,
+            PageSectionTitle(title: name, count: items.count > 1 ? items.count : nil,
                                  icon: ProviderIconView(providerID: id, size: 14))
             // Re-asked whenever the list or its order changes: the first account is the primary.
             .task(id: items.map(\.id) + items.compactMap(\.launchHome)) {

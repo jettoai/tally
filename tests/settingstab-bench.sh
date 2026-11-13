@@ -10,7 +10,10 @@
 # and exits non-zero if any switch changed the window's size or the right-hand content column's size
 # (before versus after, or on any frame in between), left the new pane scrolled away from its top
 # (the column is parked at the foot of the old pane before each switch), or took over 320ms to
-# settle. Dropped frames and maxGap (the longest gap between frames, a stand-in for a main-thread
+# settle. It also reads where the skeleton's landmarks stand on every page once it has settled (the
+# header, the content column, its first element, the sidebar's brand and navigation; the numbers are
+# PageSkeleton's) and fails a page that is missing one or has one elsewhere: a page that does not use
+# the fixed-header shell reports no header at all. Dropped frames and maxGap (the longest gap between frames, a stand-in for a main-thread
 # stall) are printed but not judged: entering Integrations stalls the main thread for 67 to 99ms
 # on the unchanged pre-fixed-size build too (first expansion of that pane, every pane lays out on
 # each switch), so a threshold on it fails for a reason this gate is not about.
@@ -52,14 +55,38 @@ def same(a, b):
 def dim(v):
     return f"{v[0]:.0f}x{v[1]:.0f}"
 
+# Where each landmark stands, [x, y, width, height] in the window, tolerance half a point; None = any.
+def landmarks(pane):
+    return {
+        f"{pane}.header": [200, 0, 780, 104],
+        f"{pane}.column": [240, 116, 700, None],
+        f"{pane}.first": [240, 116, 700, 0],
+        "sidebar.nav": [None, 116, None, None],
+        "sidebar.brand": [None, 46, None, None],
+    }
+
+def misplaced(r):
+    geo = r.get("geometry", {})
+    bad = []
+    for key, want in landmarks(r["to"]).items():
+        got = geo.get(key)
+        if got is None:
+            bad.append(f"{key} missing")
+        elif any(w is not None and abs(w - g) > 0.5 for w, g in zip(want, got)):
+            bad.append(f"{key} {[round(g, 1) for g in got]} not {want}")
+    return bad
+
 print(f"{'from':>12} {'to':>12} {'window':>9} {'content':>9} {'resized':>7} {'settle':>6} "
       f"{'top':>5} {'dropped':>7} {'maxGap':>6}")
 bad = 0
 for r in rows:
+    off = misplaced(r)
     fail = (not same(r["windowBefore"], r["windowAfter"])
             or not same(r["contentBefore"], r["contentAfter"])
-            or r["resizedFrames"] > 0 or r["scrolledFromTop"] > 1 or r["settleMs"] > 320)
+            or r["resizedFrames"] > 0 or r["scrolledFromTop"] > 1 or r["settleMs"] > 320 or bool(off))
     bad += fail
+    if off:
+        print(f"{r['from']:>12} {r['to']:>12} landmarks: {'; '.join(off)}")
     print(f"{r['from']:>12} {r['to']:>12} {dim(r['windowAfter']):>9} {dim(r['contentAfter']):>9} "
           f"{r['resizedFrames']:>7} {r['settleMs']:>6} {r['scrolledFromTop']:>5.0f} {r['droppedFrames']:>7} {r['maxGapMs']:>6}"
           f"{'  FAIL' if fail else ''}")
@@ -88,6 +115,6 @@ with open(sequence, "w") as md:
 print(f"sample sequence: {sequence}")
 
 print(f"{len(rows)} switches, {bad} over threshold "
-      "(window or content changed, not at top, or settle>320ms)")
+      "(window or content changed, not at top, settle>320ms, or a landmark off the skeleton)")
 sys.exit(1 if bad else 0)
 EOF

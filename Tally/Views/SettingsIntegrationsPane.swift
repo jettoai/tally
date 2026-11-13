@@ -34,24 +34,25 @@ extension SettingsView {
             real: claudeRows.contains(.notInstalled) && integrations.noClaudeAccount)
         let claudeSkipNote = noClaudeAccount ? L("No Claude account on this Mac, so Install all skips this row.") : nil
         let codexSkipNote = noCodexAccount ? L("No Codex account on this Mac, so Install all skips this row.") : nil
-        SettingsPage {
-            VStack(alignment: .leading, spacing: 16) {
-                // The two whole-set buttons live in the header. The Shared harness is deliberately
-                // NOT in their set (see `allIntegrationEntries`).
-                IntegrationsHeader(
-                    missing: installAllActions(integrations, statuses: statuses, entries: entries),
-                    installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 },
-                    asksPassword: asksPassword, skipsCodex: noCodexAccount, skipsClaude: noClaudeAccount)
-                    .disabled(locked)
-                // A build nobody installed observes but never mutates the shared integrations (hard-gated
-                // in IntegrationsStore too); say so instead of offering buttons that refuse.
-                if !IntegrationsCapture.simulating {
-                    SettingsDevBanner(message: L("Integrations are managed by the installed release app."))
-                }
-                autoFollowNotices(integrations)
-                if let error = IntegrationsCapture.cliInstallPreview ?? integrations.lastError {
-                    SettingsNoticeBar(kind: .warning, title: error)
-                }
+        SettingsPage(title: L("Integrations"),
+                     subtitle: L("Hooks, status lines and tools Tally adds to your CLIs. Each one removes cleanly."),
+                     trailing: {
+            // The two whole-set buttons live in the header. The Shared harness is deliberately
+            // NOT in their set (see `allIntegrationEntries`).
+            IntegrationsHeader(
+                missing: installAllActions(integrations, statuses: statuses, entries: entries),
+                installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 },
+                asksPassword: asksPassword, skipsCodex: noCodexAccount, skipsClaude: noClaudeAccount)
+                .disabled(locked)
+        }) {
+            // A build nobody installed observes but never mutates the shared integrations (hard-gated
+            // in IntegrationsStore too); say so instead of offering buttons that refuse.
+            if !IntegrationsCapture.simulating {
+                SettingsDevBanner(message: L("Integrations are managed by the installed release app."))
+            }
+            autoFollowNotices(integrations)
+            if let error = IntegrationsCapture.cliInstallPreview ?? integrations.lastError {
+                SettingsNoticeBar(kind: .warning, title: error)
             }
             // Disabled on exactly what the hard gate refuses (`guardNotDev`, IntegrationsStore).
             // The Harness group is outside it, on purpose: it has its own receipt and is the one
@@ -374,8 +375,8 @@ extension SettingsView {
     }
 }
 
-/// The page header with its two whole-set buttons. A struct of its own because the confirmation
-/// dialog needs state, and an extension of `SettingsView` cannot hold any.
+/// The page header's right-hand slot: the two whole-set buttons. A struct of its own because the
+/// confirmation dialog needs state, and an extension of `SettingsView` cannot hold any.
 private struct IntegrationsHeader: View {
     let missing: [() -> Void]
     let installed: [() -> Void]
@@ -387,8 +388,7 @@ private struct IntegrationsHeader: View {
     @State private var confirmingRemoveAll = IntegrationsCapture.confirm
 
     var body: some View {
-        SettingsPageHeader(title: L("Integrations"),
-                           subtitle: L("Hooks, status lines and tools Tally adds to your CLIs. Each one removes cleanly.")) {
+        HStack(spacing: 8) {
             // Buttons appear only when they have work to do, so the pair doubles as an at-a-glance
             // "is everything on?" answer.
             if !missing.isEmpty {

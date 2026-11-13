@@ -371,8 +371,25 @@ func checkPanelSummon() {
     // the spacer, not measured. Adjacency rather than order, because `Spacer(minLength: 0)` is
     // written twice in this file with two meanings - the one inside a sidebar ROW pushes its label
     // left, and the one being asserted here fills the column.
+    let skeleton = code(of: "Tally/Views/SettingsSkeleton.swift")
+    let skeletonSidebar = code(of: "Tally/Views/SettingsSkeletonSidebar.swift")
     check("…and the sidebar's footer is pushed to the foot of the window by a spacer, not measured",
-          settingsView.contains("Spacer(minLength: 0)\n            overlaySidebarFooter"))
+          settingsView.contains("} footer: {\n            overlaySidebarFooter")
+              && skeletonSidebar.contains("Spacer(minLength: 0)\n            footer"))
+    // THE SKELETON IS APP-FREE AND SIZE-FREE: it moves into a shared package, and it reports nothing
+    // to the window. Its only GeometryReaders are the scroll-offset probe and the DEBUG landmark probe.
+    let skeletonFiles = skeleton + skeletonSidebar
+    check("the skeleton names no Tally type and no localization call, so it can move to a shared package",
+          ["SettingsChrome", "SettingsType", "TallyColor", "AccountTableStyle", "BuildVariant", "OverlayApp",
+           "tallyTooltip", "OL("].allSatisfy { !skeletonFiles.contains($0) }
+              && skeletonFiles.range(of: #"(^|[^A-Za-z0-9_])L\("#, options: .regularExpression) == nil)
+    check("…and it reports no size to the window",
+          ["setContentSize", "NSWindow", "onContentHeight", "onPaneSwitch"].allSatisfy { !skeletonFiles.contains($0) }
+              && skeletonFiles.components(separatedBy: "GeometryReader").count - 1 == 2)
+    check("…and every page's scroll view is its own, under a header that does not scroll",
+          skeleton.contains("MainPageHeader(title: title, subtitle: subtitle, trailing: trailing, scrolled: scrolled)")
+              && skeleton.contains(".id(PageSkeleton.topAnchor)")
+              && !settingsView.contains("ScrollView"))
 
     // 9bc. THE CHANGE IS NEVER ANIMATED (Albert, 2026-10-10: the growing window read as the pane
     //      "unrolling" under the click). Asserted as an absence of every way AppKit animates a
@@ -439,7 +456,7 @@ func checkPaneSwitchOrder() {
     let chromeSource = code(of: "Tally/Views/SettingsChrome.swift")
     check("…and that height and the width come from one place, the chrome constants",
           chromeSource.contains("static let windowHeight: CGFloat = 700")
-              && chromeSource.contains("static var windowWidth: CGFloat { sidebarWidth + contentWidth }")
+              && chromeSource.contains("static let windowWidth: CGFloat = 980")
               && !chromeSource.contains("maxWindowHeight"))
 
     // Every way a pane changes goes through the one function.
@@ -450,15 +467,15 @@ func checkPaneSwitchOrder() {
     check("the pane in front is assigned in exactly one place, select (\(assignments.count))",
           assignments.count == 1)
     check("…and the sidebar and the Launch pane's link both go through it",
-          view.contains("Button {\n                    select(item)\n                }")
+          view.contains("}, selection: section, select: select) {")
               && view.contains("select(.integrations)"))
-    check("…which changes the pane and scrolls it to the top, with nothing waiting on it",
-          view.contains("        section = item\n        scrollTarget = Self.paneTopAnchor")
-              && view.contains("Color.clear.frame(height: 0).id(Self.paneTopAnchor)")
+    check("…which changes the pane, the one leaving scrolls itself to its top, and nothing waits on it",
+          view.contains("        section = item\n    }")
+              && code(of: "Tally/Views/SettingsSkeleton.swift").contains(
+                  "if !active { proxy.scrollTo(PageSkeleton.topAnchor, anchor: .top) }")
               && !view.contains("pendingSection"))
-    // The Launch link scrolls to a group of the pane it lands on, after the switch has asked for the
-    // top; the scroll request is consumed on its last value, so the link still wins.
-    check("…and the Launch pane's link asks for its group after the switch asked for the top",
+    // The Launch link scrolls to a group of the pane it lands on, right after the switch.
+    check("…and the Launch pane's link asks for its group right after the switch",
           precedes("select(.integrations)", "scrollTarget = Self.sharedHarnessAnchor", in: view))
     let controller = code(of: "Tally/MenuBar/SettingsWindowController.swift")
     check("…and the window is not asked to do anything about it",

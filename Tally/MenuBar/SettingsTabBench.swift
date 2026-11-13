@@ -9,7 +9,9 @@ import QuartzCore
 /// line, then quits. The window is a fixed size on every pane, so the question per switch is
 /// whether anything moved: the window's size and the right-hand content column's size before the
 /// switch, after it, and on every display-link tick in between (`resizedFrames`), whether the new
-/// pane opened at its top although the column was left scrolled down (`scrolledFromTop`), the window
+/// pane opened at its top although the column was left scrolled down (`scrolledFromTop`), where the
+/// skeleton's landmarks stand once it settled (`geometry`: header, content column, first element,
+/// sidebar navigation and brand, from `PageGeometryProbe`), the window
 /// size on every tick (`samples`), plus how long
 /// until the pane on screen stopped changing and how many ticks arrived late (a stand-in for main
 /// thread stalls, not for what the compositor presented).
@@ -91,6 +93,8 @@ private final class Run: NSObject {
     }
 
     /// The right-hand content column: the largest scroll view in the window (the sidebar has none).
+    /// Every page owns one and the pages that wait are collapsed to no height, so the visible one
+    /// is the largest; asked again on every frame, because which one that is changes with a switch.
     private func findColumn(in view: NSView?) -> NSScrollView? {
         guard let view else { return nil }
         var best: NSScrollView?
@@ -104,6 +108,15 @@ private final class Run: NSObject {
     }
 
     private var columnSize: CGSize { column.map { $0.convert($0.bounds, to: nil).size } ?? .zero }
+
+    /// The skeleton's landmarks for the pane now in front, `[x, y, width, height]` in the window's space.
+    private func geometry(of pane: String) -> [String: [Double]] {
+        var out: [String: [Double]] = [:]
+        for (key, frame) in PageGeometryProbe.frames where key.hasPrefix(pane + ".") || key.hasPrefix("sidebar.") {
+            out[key] = [frame.minX, frame.minY, frame.width, frame.height].map(Double.init)
+        }
+        return out
+    }
 
     /// How far the column is scrolled from its top, in points (0 = at the top). The document is
     /// flipped, and with a full-size content view the top rests at minus the title bar's inset.
@@ -161,6 +174,7 @@ private final class Run: NSObject {
     @objc private func tick(_ link: CADisplayLink) {
         guard let window else { return }
         let now = link.timestamp
+        column = findColumn(in: window.contentView)
         let interval = link.targetTimestamp - link.timestamp
         if lastTick > 0 {
             let gap = now - lastTick
@@ -180,6 +194,7 @@ private final class Run: NSObject {
     }
 
     private func record(to: String) {
+        column = findColumn(in: window?.contentView)
         let after = window?.frame.size ?? .zero
         func pair(_ s: CGSize) -> [Double] { [Double(s.width), Double(s.height)] }
         write([
@@ -191,6 +206,7 @@ private final class Run: NSObject {
             "frames": frames, "droppedFrames": dropped,
             "maxGapMs": Int((maxGap * 1000).rounded()),
             "samples": samples,
+            "geometry": geometry(of: to),
         ])
     }
 

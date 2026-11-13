@@ -223,9 +223,11 @@ func runPickSurfaceChecks() {
               && !popover.contains("if BuildVariant.isDev, !DemoUsage.isActive {"))
     let settingsWindow = (try? String(contentsOfFile: "Tally/MenuBar/SettingsWindowController.swift",
                                       encoding: .utf8)) ?? ""
-    check("the Settings window wears the same DEV tag in its title bar on a Debug build",
-          settingsWindow.contains("if BuildVariant.isDev { TallyDevTagView() }")
-              && settingsWindow.contains("window.addTitlebarAccessoryViewController(accessory)"))
+    let settingsViewSource = (try? String(contentsOfFile: "Tally/Views/SettingsView.swift",
+                                          encoding: .utf8)) ?? ""
+    check("the Settings window wears the same DEV tag in its sidebar brand row on a Debug build",
+          settingsViewSource.contains("if BuildVariant.isDev { TallyDevTagView() }")
+              && !settingsWindow.contains("addTitlebarAccessoryViewController"))
     let launchViews = (try? String(contentsOfFile: "Tally/Views/PopoverLaunchViews.swift",
                                    encoding: .utf8)) ?? ""
     check("…and no launch summary strip",

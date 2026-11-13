@@ -44,6 +44,12 @@ enum SettingsCaptureLaunch {
         words.count > 1 && words[1] == "add"
     }
 
+    /// Whether the address carries a second part `scrolled` (`launch:scrolled`): the pane then opens
+    /// scrolled to its foot, which is the only way to photograph a header with its hairline up.
+    static var opensScrolled: Bool {
+        words.count > 1 && words[1] == "scrolled"
+    }
+
     /// The value split into its address parts, each folded to the case-and-spacing-free shape both
     /// readings match against - so `Integrations: Claude Code` and `integrations:claudecode` are the
     /// one address, which matters because the words a reviewer has in front of them are the labels

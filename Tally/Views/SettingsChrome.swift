@@ -11,36 +11,24 @@ enum SettingsChrome {
     /// pane taller than this scrolls inside the window; a display too short for it caps it
     /// (`ResizeAnchor.fittedWindowHeight`).
     static let windowHeight: CGFloat = 700
-    /// The window's width: the sidebar plus the content column, so it follows the account table's width.
-    static var windowWidth: CGFloat { sidebarWidth + contentWidth }
-    /// The pages' rhythm (B-2526, Voice's values): the gap between sections, a section title to its
-    /// card, a row's insets and floor, and the identity card's inset.
-    static let sectionGap: CGFloat = 18
-    static let headerToCard: CGFloat = 8
-    static let rowInsetH: CGFloat = 16
-    static let rowInsetV: CGFloat = 9
-    static let rowMinHeight: CGFloat = 44
-    static let heroInset: CGFloat = 20
-    /// A row's icon slot and the gap after it.
-    static let rowIconSlot: CGFloat = 20
-    static let rowIconGap: CGFloat = 12
-    /// Where a row's divider starts: under the title column (inset + icon slot + gap), or at the
-    /// inset when the row has no icon.
-    static var dividerInsetIcon: CGFloat { rowInsetH + rowIconSlot + rowIconGap }
-    static var dividerInsetPlain: CGFloat { rowInsetH }
-    /// The sidebar's rhythm: its outer inset, a row's padding and icon slot, the gap between rows.
-    static let sidebarInset: CGFloat = 8
-    static let sidebarRowPadV: CGFloat = 6
-    static let sidebarRowPadH: CGFloat = 8
-    static let sidebarRowSpacing: CGFloat = 4
-    static let sidebarIconSlot: CGFloat = 20
-    /// The page's inset inside the scroll view, and the content column it sits in: window content
-    /// width = sidebar + column, the column being a card plus two insets (the card is
-    /// `AccountTableStyle.cardWidth` wide).
-    static let paneInsetH: CGFloat = 24
-    static let paneInsetTop: CGFloat = 18
-    static let paneInsetBottom: CGFloat = 20
-    static var contentWidth: CGFloat { AccountTableStyle.current.cardWidth + 2 * paneInsetH }
+    /// The window's width, fixed like its height (B-4474): the 200 sidebar and a 780 pane holding the
+    /// 700 content column between two 40 insets.
+    static let windowWidth: CGFloat = 980
+    /// The right-hand pane: header and scroll view of the page in front.
+    static var contentWidth: CGFloat { windowWidth - sidebarWidth }
+    /// The skeleton's numbers for this window (`PageSkeleton`, SettingsSkeleton.swift).
+    static let skeleton = PageSkeleton(windowWidth: windowWidth, windowHeight: windowHeight, sidebarWidth: sidebarWidth)
+    /// The pages' rhythm, forwarded from the skeleton so the panes keep their spellings.
+    static let sectionGap: CGFloat = PageSkeleton.sectionGap
+    static let headerToCard: CGFloat = PageSkeleton.sectionTitleToCard
+    static let rowInsetH: CGFloat = PageSkeleton.rowInsetH
+    static let rowInsetV: CGFloat = PageSkeleton.rowInsetV
+    static let rowMinHeight: CGFloat = PageSkeleton.rowMinHeight
+    static let heroInset: CGFloat = PageSkeleton.rowInsetH
+    static let rowIconSlot: CGFloat = PageSkeleton.rowIconSlot
+    static let rowIconGap: CGFloat = PageSkeleton.rowIconGap
+    static var dividerInsetIcon: CGFloat { PageSkeleton.dividerInsetIcon }
+    static var dividerInsetPlain: CGFloat { PageSkeleton.dividerInsetPlain }
     static let sidebar = adaptive(light: 0xEBEBED, dark: 0x28282A)
     static let page = adaptive(light: 0xF3F3F5, dark: 0x1C1C1E)
     /// The "Sign in again" chip: a dark red on a pale wash in light mode, a pale red on a deep one in
@@ -59,42 +47,26 @@ enum SettingsChrome {
     }
 }
 
-/// The Settings window's type scale (B-3747), measured against System Settings side by side:
-/// row titles and the sidebar at 13 like it, descriptions one step down, the page title at 20.
+/// The Settings window's type scale (B-4474): the design spec's sizes, one step above the old ones.
 enum SettingsType {
-    static let pageTitle: CGFloat = 20
-    static let pageSubtitle: CGFloat = 12
-    static let sectionTitle: CGFloat = 13
-    static let sectionIcon: CGFloat = 12
-    static let count: CGFloat = 11
-    static let rowTitle: CGFloat = 13
-    static let rowSubtitle: CGFloat = 11
-    static let rowIcon: CGFloat = 15
-    static let body: CGFloat = 12
-    static let badge: CGFloat = 11
-    static let info: CGFloat = 11
-    static let noticeTitle: CGFloat = 12
-    static let noticeMessage: CGFloat = 11
-    static let noticeIcon: CGFloat = 13
-    static let action: CGFloat = 12
-    static let actionIcon: CGFloat = 11
-    static let sidebar: CGFloat = 13
+    static let pageTitle: CGFloat = PageType.pageTitle
+    static let pageSubtitle: CGFloat = PageType.pageSubtitle
+    static let sectionTitle: CGFloat = PageType.sectionTitle
+    static let sectionIcon: CGFloat = PageType.sectionIcon
+    static let count: CGFloat = PageType.count
+    static let rowTitle: CGFloat = 14
+    static let rowSubtitle: CGFloat = 12
+    static let rowIcon: CGFloat = 18
+    static let body: CGFloat = 13
+    static let badge: CGFloat = 12
+    static let info: CGFloat = 12
+    static let noticeTitle: CGFloat = 13
+    static let noticeMessage: CGFloat = 12
+    static let noticeIcon: CGFloat = 14
+    static let action: CGFloat = PageType.pageButton
+    static let actionIcon: CGFloat = PageType.pageButtonIcon
+    static let sidebar: CGFloat = PageType.sidebar
 }
 
-/// A grouped card: white on the page in light mode with a faint shadow, a 6% white wash in dark.
-struct SettingsCardSurface: ViewModifier {
-    var cornerRadius: CGFloat = 12
-    /// A raised card under the pointer (a page-level action button), one step brighter.
-    var highlighted = false
-    @Environment(\.colorScheme) private var scheme
-
-    func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let dark = scheme == .dark
-        content
-            .background(shape.fill(dark ? Color.white.opacity(highlighted ? 0.09 : 0.06) : Color.white)
-                .shadow(color: .black.opacity(dark ? 0 : (highlighted ? 0.09 : 0.05)),
-                        radius: highlighted ? 5 : 3, y: 1))
-            .overlay(shape.strokeBorder(Color.primary.opacity(dark ? 0.09 : 0.08), lineWidth: 0.5))
-    }
-}
+/// The card face the panes already spell this way; the one definition is `CardSurface`.
+typealias SettingsCardSurface = CardSurface

@@ -10,9 +10,7 @@ extension SettingsView {
     /// Not private: the pane switch that renders it (`SettingsView.paneContent`) is in the other
     /// file, and `private` in Swift is file-scoped.
     var displayPane: some View {
-        SettingsPage {
-            SettingsPageHeader(title: L("Display"),
-                               subtitle: L("What the menu bar, panel and pinned window show."))
+        SettingsPage(title: L("Display"), subtitle: L("What the menu bar, panel and pinned window show.")) {
             generalSection
             menuBarSection
             pinnedSection

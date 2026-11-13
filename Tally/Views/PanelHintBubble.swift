@@ -127,6 +127,7 @@ struct PanelHintBubbleOverlay: View {
 
     @State private var bubbleHeight: CGFloat = 0
     private let memory = PanelHintMemory.shared
+    private let settings = SettingsStore.shared
 
     private var shows: Bool {
         if let held = PanelHintMemory.preview { return held == .bubble && !memory.seen }
@@ -140,7 +141,7 @@ struct PanelHintBubbleOverlay: View {
                 if let shown {
                     let tipX = shown.meter.minX + AccountListRowView.barWidth / 2
                     let x = min(max(tipX - 44, 12), max(12, proxy.size.width - 12 - PanelHintBubble.width))
-                    PanelHintBubble(arrowX: tipX - x, arrowAtBottom: shown.placement.above) { memory.markSeen() }
+                    PanelHintBubble(arrowX: tipX - x, arrowAtBottom: shown.placement.above, mode: settings.displayMode) { memory.markSeen() }
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self, of: \.size.height) { bubbleHeight = $0 }
                         .offset(x: x, y: shown.areaTop + shown.placement.y)
@@ -232,6 +233,8 @@ private struct PanelHintBubble: View {
     let arrowX: CGFloat
     /// True when the bubble sits above its meter (B-4112): the arrow is on the bottom edge.
     let arrowAtBottom: Bool
+    /// What the bars show, so the copy says what the account rows say.
+    let mode: DisplayMode
     let onGotIt: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -242,9 +245,12 @@ private struct PanelHintBubble: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 PanelHintGlyph(diameter: 18) { PanelHintBars() }
-                Text(L("What's left, per account")).font(.system(size: 13, weight: .semibold))
+                Text(mode == .used ? L("What's used, per account") : L("What's left, per account"))
+                    .font(.system(size: 13, weight: .semibold))
             }
-            Text(L("The bars show how much of the 5-hour and weekly limits is left, and when each one refills."))
+            Text(mode == .used
+                 ? L("The bars show how much of the 5-hour and weekly limits is used, and when each one refills.")
+                 : L("The bars show how much of the 5-hour and weekly limits is left, and when each one refills."))
                 .font(.system(size: 12.5)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: onGotIt) { Text(L("Got it")) }

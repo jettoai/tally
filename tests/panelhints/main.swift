@@ -111,7 +111,7 @@ if let snapshot = bubble.range(of: "seenAtAppear = memory.seen"),
     expect(snapshot.lowerBound < count.lowerBound,
            "the appearance reads whether the hint was answered before it counts itself")
 } else { expect(false, "the appearance reads whether the hint was answered before it counts itself") }
-expect(bubble.contains("arrowAtBottom: shown.placement.above) { memory.markSeen() }")
+expect(bubble.contains("mode: settings.displayMode) { memory.markSeen() }")
         && bubble.contains("held == .bubble && !memory.seen")
         && bubble.contains("showsBubble(seen: memory.seen"),
        "the Got it button marks the hint seen, and both the held and the normal path read that")
@@ -124,9 +124,13 @@ expect(!bubble.contains("width - 250 - 126"),
        "the bubble's arrow is placed from a measured meter, not from the panel width")
 let rowSource = source("Tally/Views/AccountListRowView.swift"), cardSource = source("Tally/Views/AccountCardView.swift")
 expect(rowSource.contains("anchorPreference(key: PanelHintTargetKey.self")
-        && cardSource.contains("anchorPreference(key: PanelHintTargetKey.self")
+        && cardSource.contains("hintAnchorID: usage.id")
+        && source("Tally/Views/MetricRowView.swift").contains("anchorPreference(key: PanelHintTargetKey.self")
         && root.contains("overlayPreferenceValue(PanelHintTargetKey.self"),
        "both densities report their first meter, and the panel places the bubble from it")
+expect(bubble.contains("mode == .used ? L(\"What's used, per account\")")
+        && bubble.contains("limits is used, and when each one refills."),
+       "the bubble's copy follows the display mode, so it never says left over rows showing used")
 // The bubble is drawn over the whole panel body, after the footer, and asks nobody for room (B-3823):
 // the scroll view only reports its visible frame into the same key.
 if let footerEnd = root.range(of: "                if settings.panelDensity != .list { Divider() }\n                footer\n            }"),

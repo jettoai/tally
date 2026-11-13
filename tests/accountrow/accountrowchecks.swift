@@ -757,7 +757,7 @@ func runAccountRowChecks() {
     // gets it is the headline one and no other (codex review, 2026-09-05).
     let cardHost = readSource("Tally/Views/AccountCardView.swift")
     check("the card tells the headline row that it is one, and tells no other row so",
-          cardHost.contains("reserve: facts.reservePercent, isHeadline: true)")
+          cardHost.contains("reserve: facts.reservePercent, isHeadline: true, hintAnchorID: usage.id)")
               && cardHost.components(separatedBy: "isHeadline: true").count == 2)
     check("…and the reading is gated on that fact rather than on `prominent`",
           !cardMeter.contains("prominent ? reserve")

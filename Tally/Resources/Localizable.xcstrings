@@ -27632,6 +27632,41 @@
         }
       }
     },
+    "What's used, per account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個帳號已用多少"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个账号已用多少"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントごとの使用量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정별 사용량"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesap başına kullanılan"
+          }
+        }
+      }
+    },
     "What's left, per account": {
       "extractionState": "manual",
       "localizations": {
@@ -27663,6 +27698,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hesap başına kalan"
+          }
+        }
+      }
+    },
+    "The bars show how much of the 5-hour and weekly limits is used, and when each one refills.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長條顯示 5 小時與每週額度已用多少，以及各自何時回滿。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进度条显示 5 小时和每周额度已用多少，以及各自何时回满。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バーは 5 時間と週間の上限の使用量と、それぞれが回復するまでの時間を示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "막대는 5시간 및 주간 한도를 얼마나 사용했는지와 각각 언제 다시 채워지는지를 보여 줍니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çubuklar, 5 saatlik ve haftalık limitlerden ne kadarının kullanıldığını ve her birinin ne zaman yenilendiğini gösterir."
           }
         }
       }

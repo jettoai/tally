@@ -27,6 +27,10 @@ struct MetricRowView: View {
     /// model tier" reveals are the same kind (`PersonalAccount.reserved`).
     var isHeadline: Bool = false
 
+    /// Set on the row the first-run bubble may point at: the bubble's target is the bar itself, not
+    /// the label beside it, so it is anchored here where the bar's real position is known.
+    var hintAnchorID: String? = nil
+
     /// What this row's own bar reserves: the number above where the window carries one, and zero
     /// where it does not, so the mark and the tooltip cannot disagree about it.
     private var barReserve: Int {
@@ -73,6 +77,14 @@ struct MetricRowView: View {
             }
         }
         .frame(height: prominent ? 7 : 6)
+        // A bar-wide-as-the-list's target centred on this bar: the bubble points at the target's
+        // leading edge plus half that width, which is this bar's midpoint. Draws nothing.
+        .overlay {
+            if let hintAnchorID {
+                Color.clear.frame(width: AccountListRowView.barWidth)
+                    .anchorPreference(key: PanelHintTargetKey.self, value: .bounds) { [hintAnchorID: $0] }
+            }
+        }
         .tallyTooltip(barReserve > 0 ? L("Kept for web use") : "")
     }
 

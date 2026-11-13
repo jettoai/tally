@@ -25,15 +25,12 @@ struct SettingsLaunchView: View {
         let descriptors = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
         let claudeOn = settings.isEnabled(EarlyStartLogic.providerID)
         let codexOn = settings.isEnabled(CodexAutoRedeemLogic.providerID)
-        SettingsPage {
-            VStack(alignment: .leading, spacing: 16) {
-                SettingsPageHeader(title: L("Launch"),
-                                   subtitle: L("How tally claude and tally codex start sessions, and what runs while you are away."))
-                // The login item is the one row here a dev build may not operate (SettingsLaunchAtLoginRow);
-                // a preview launch stands on a fixture and operates it, so it needs no apology.
-                if LoginItemPreview.fixture == nil {
-                    SettingsDevBanner(message: L("Start at login is managed by the installed release app."))
-                }
+        SettingsPage(title: L("Launch"),
+                     subtitle: L("How tally claude and tally codex start sessions, and what runs while you are away.")) {
+            // The login item is the one row here a dev build may not operate (SettingsLaunchAtLoginRow);
+            // a preview launch stands on a fixture and operates it, so it needs no apology.
+            if LoginItemPreview.fixture == nil {
+                SettingsDevBanner(message: L("Start at login is managed by the installed release app."))
             }
             SettingsSection(L("Startup"), symbol: "power") {
                 SettingsLaunchAtLoginRow(isVisible: visible)
@@ -63,11 +60,13 @@ struct SettingsLaunchView: View {
                 }
             }
             if descriptors.isEmpty {
+                // Nothing to configure: one 52 high row, leading edge, not a centred paragraph.
                 SettingsCard {
-                    Text(L("Enable a provider in Accounts to configure launches."))
-                        .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(20)
+                    GroupRowFrame {
+                        Text(L("Enable a provider in Accounts to configure launches."))
+                            .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
+                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    } accessory: { EmptyView() }
                 }
             } else {
                 ForEach(descriptors, id: \.id) { descriptor in

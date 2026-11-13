@@ -4,11 +4,17 @@ import QuartzCore
 /// Live measurement of a Settings pane switch (`-TallySettingsTabBench <path.jsonl>`, demo and dev
 /// builds only, argument domain so nothing persists). Driven by tests/settingstab-bench.sh.
 ///
-/// Opens the window without taking the foreground, walks all 20 ordered pane pairs, and appends one
-/// JSON line per switch, then quits. Per switch, on the window's own display link: how long until
-/// the window and the pane on screen stopped changing, ticks that arrived late (a stand-in for main
-/// thread stalls, not for what the compositor presented), and ticks on which the pane on screen was
-/// cut by the window by more than the display itself forces.
+/// Opens the window without taking the foreground and walks every ordered pane pair once (an Euler
+/// circuit over the sidebar's panes), appending one JSON line per switch, then a closing `done`
+/// line, then quits. The window is a fixed size on every pane, so the question per switch is
+/// whether anything moved: the window's size and the right-hand content column's size before the
+/// switch, after it, and on every display-link tick in between (`resizedFrames`), whether the new
+/// pane opened at its top although the column was left scrolled down (`scrolledFromTop`), where the
+/// skeleton's landmarks stand once it settled (`geometry`: header, content column, first element,
+/// sidebar navigation and brand, from `PageGeometryProbe`), the window
+/// size on every tick (`samples`), plus how long
+/// until the pane on screen stopped changing and how many ticks arrived late (a stand-in for main
+/// thread stalls, not for what the compositor presented).
 @MainActor
 enum SettingsTabBench {
     static let key = "TallySettingsTabBench"
@@ -17,12 +23,13 @@ enum SettingsTabBench {
     /// Read once: SettingsView asks on every pane change, and the answer cannot change mid-launch.
     static let isActive = (DemoUsage.isActive || BuildVariant.isDev) && CaptureLaunch.carries(key)
 
-    /// The pane on screen and its natural height with its inset, published by SettingsView.
+    /// The pane on screen and the sidebar's panes in order, published by SettingsView. The walk is
+    /// taken from the view so a pane a private build adds is in it without this file knowing.
     struct Shown: Equatable {
         var section: String
-        var height: CGFloat
+        var sections: [String]
     }
-    static var shown = Shown(section: "", height: 0)
+    static var shown = Shown(section: "", sections: [])
 
     private static var run: Run?
 
@@ -39,26 +46,26 @@ enum SettingsTabBench {
 
 @MainActor
 private final class Run: NSObject {
-    /// Every ordered pair once, as one walk: for a step k, 0 -> k -> 2k -> ... -> 0 (mod 5) is a
-    /// cycle through every pair k apart, and 5 being prime makes the four cycles cover all 20.
-    private static let walk: [SettingsView.Section] = {
-        // The public five: the overlay pane is absent from the public window, and five is prime.
-        let all = SettingsView.Section.allCases.filter { $0 != .overlay }
-        return (1..<all.count).flatMap { k in (1...all.count).map { all[$0 * k % all.count] } }
-    }()
     private static let dwell: TimeInterval = 0.6
+    /// A size counts as moved past this, the same half point `ResizeAnchor` calls noise.
+    private static let tolerance: CGFloat = 0.5
 
     private let output: URL
+    private var walk: [String]?
     private var step = 0
-    private var from = SettingsView.Section.accounts
+    private var from = ""
     private var link: CADisplayLink?
+    private var column: NSScrollView?
 
     private var start: CFTimeInterval = 0
     private var lastTick: CFTimeInterval = 0
     private var lastChange: CFTimeInterval = 0
-    private var lastHeight: CGFloat = 0
-    private var lastShown = SettingsTabBench.Shown(section: "", height: 0)
-    private var frames = 0, dropped = 0, clipped = 0
+    private var lastShown = SettingsTabBench.Shown(section: "", sections: [])
+    private var windowBefore = CGSize.zero, columnBefore = CGSize.zero
+    private var frames = 0, dropped = 0, resized = 0
+    /// Every tick's window size, `[ms since the switch, width, height]`: the whole sequence rather
+    /// than only the verdict, so a reader can see that no sampled frame was any other size.
+    private var samples: [[Double]] = []
     private var maxGap: CFTimeInterval = 0
 
     /// File IO off the main thread: the numbers are taken there, the lines are written here.
@@ -73,22 +80,89 @@ private final class Run: NSObject {
 
     private var window: NSWindow? { SettingsWindowController.shared.window }
 
+    /// Every ordered pair once, as one walk: an Euler circuit of the complete directed graph over the
+    /// panes (Hierholzer), which exists for any count, prime or not. Starts from the pane on screen.
+    private static func circuit(over sections: [String], from first: String) -> [String] {
+        guard let start = sections.firstIndex(of: first) else { return [] }
+        var remaining = sections.indices.map { a in sections.indices.filter { $0 != a } }
+        var stack = [start], path: [Int] = []
+        while let v = stack.last {
+            if let w = remaining[v].popLast() { stack.append(w) } else { path.append(stack.removeLast()) }
+        }
+        return path.reversed().dropFirst().map { sections[$0] }
+    }
+
+    /// The right-hand content column: the largest scroll view in the window (the sidebar has none).
+    /// Every page owns one and the pages that wait are collapsed to no height, so the visible one
+    /// is the largest; asked again on every frame, because which one that is changes with a switch.
+    private func findColumn(in view: NSView?) -> NSScrollView? {
+        guard let view else { return nil }
+        var best: NSScrollView?
+        func area(_ s: NSScrollView) -> CGFloat { s.bounds.width * s.bounds.height }
+        func visit(_ v: NSView) {
+            if let s = v as? NSScrollView, area(s) > (best.map(area) ?? 0) { best = s }
+            v.subviews.forEach(visit)
+        }
+        visit(view)
+        return best
+    }
+
+    private var columnSize: CGSize { column.map { $0.convert($0.bounds, to: nil).size } ?? .zero }
+
+    /// The skeleton's landmarks for the pane now in front, `[x, y, width, height]` in the window's space.
+    private func geometry(of pane: String) -> [String: [Double]] {
+        var out: [String: [Double]] = [:]
+        for (key, frame) in PageGeometryProbe.frames where key.hasPrefix(pane + ".") || key.hasPrefix("sidebar.") {
+            out[key] = [frame.minX, frame.minY, frame.width, frame.height].map(Double.init)
+        }
+        return out
+    }
+
+    /// How far the column is scrolled from its top, in points (0 = at the top). The document is
+    /// flipped, and with a full-size content view the top rests at minus the title bar's inset.
+    private var scrolledFromTop: Double {
+        guard let column else { return 0 }
+        return Double(column.contentView.bounds.minY + column.contentView.contentInsets.top)
+    }
+
+    /// Leaves the column at the foot of the pane in front, so a switch that forgets to scroll the
+    /// new pane to its top shows up as an offset after it.
+    private func scrollColumnToBottom() {
+        guard let column, let doc = column.documentView else { return }
+        let clip = column.contentView
+        clip.scroll(to: NSPoint(x: 0, y: max(0, doc.frame.height - clip.bounds.height)))
+        column.reflectScrolledClipView(clip)
+    }
+
+    private static func moved(_ a: CGSize, _ b: CGSize) -> Bool {
+        abs(a.width - b.width) > tolerance || abs(a.height - b.height) > tolerance
+    }
+
     func next() {
-        guard step < Self.walk.count, let view = window?.contentView else { return finish() }
+        guard let view = window?.contentView else { return finish() }
+        if walk == nil {
+            let shown = SettingsTabBench.shown
+            walk = Self.circuit(over: shown.sections, from: shown.section)
+            from = shown.section
+        }
+        guard let walk, step < walk.count else { return finish() }
         if link == nil {
             let link = view.displayLink(target: self, selector: #selector(tick(_:)))
             link.add(to: .main, forMode: .common)
             self.link = link
         }
-        let to = Self.walk[step]
+        let to = walk[step]
+        column = findColumn(in: view)
         // `lastTick` carries over: the interval the click lands in is part of this switch, and a
         // switch that does its layout on that first frame would otherwise hide it.
-        frames = 0; dropped = 0; clipped = 0; maxGap = 0
+        frames = 0; dropped = 0; resized = 0; maxGap = 0; samples = []
         start = CACurrentMediaTime()
         lastChange = start
-        lastHeight = window?.frame.height ?? 0
         lastShown = SettingsTabBench.shown
-        NotificationCenter.default.post(name: SettingsTabBench.selectNotification, object: to.rawValue)
+        scrollColumnToBottom()
+        windowBefore = window?.frame.size ?? .zero
+        columnBefore = columnSize
+        NotificationCenter.default.post(name: SettingsTabBench.selectNotification, object: to)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.dwell) { [self] in
             record(to: to)
             from = to
@@ -98,12 +172,9 @@ private final class Run: NSObject {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        // The layout rect, not the content view: with a full-size content view (no title bar strip
-        // since B-1355) the view spans the whole frame, so chrome read off it was 0. Same measure as
-        // SettingsWindowController.fitHeight.
         guard let window else { return }
-        let content = window.contentLayoutRect.height
         let now = link.timestamp
+        column = findColumn(in: window.contentView)
         let interval = link.targetTimestamp - link.timestamp
         if lastTick > 0 {
             let gap = now - lastTick
@@ -113,28 +184,33 @@ private final class Run: NSObject {
         lastTick = now
         frames += 1
         let shown = SettingsTabBench.shown
-        if abs(window.frame.height - lastHeight) > 0.5 || shown != lastShown {
+        if shown != lastShown {
             lastChange = now
-            lastHeight = window.frame.height
             lastShown = shown
         }
-        let chrome = window.frame.height - content
-        let visible = window.screen?.visibleFrame.height ?? 900
-        // Cut by more than the display forces: the most of this pane its window will ever show.
-        let reachable = ResizeAnchor.fittedWindowHeight(reported: shown.height, chrome: chrome,
-                                                        visibleHeight: visible) - chrome
-        if min(shown.height, reachable) > content + 1 { clipped += 1 }
+        if Self.moved(window.frame.size, windowBefore) || Self.moved(columnSize, columnBefore) { resized += 1 }
+        samples.append([Double(max(0, Int(((now - start) * 1000).rounded()))),
+                        Double(window.frame.width), Double(window.frame.height)])
     }
 
-    private func record(to: SettingsView.Section) {
-        let line: [String: Any] = [
-            "from": from.rawValue, "to": to.rawValue,
-            "toPaneHeight": Double(SettingsTabBench.shown.height),
-            "contentHeight": Double(window?.contentLayoutRect.height ?? 0),
-            "settleMs": Int(((lastChange - start) * 1000).rounded()),
-            "frames": frames, "droppedFrames": dropped, "clippedFrames": clipped,
+    private func record(to: String) {
+        column = findColumn(in: window?.contentView)
+        let after = window?.frame.size ?? .zero
+        func pair(_ s: CGSize) -> [Double] { [Double(s.width), Double(s.height)] }
+        write([
+            "from": from, "to": to,
+            "windowBefore": pair(windowBefore), "windowAfter": pair(after),
+            "contentBefore": pair(columnBefore), "contentAfter": pair(columnSize),
+            "resizedFrames": resized, "scrolledFromTop": scrolledFromTop,
+            "settleMs": max(0, Int(((lastChange - start) * 1000).rounded())),   // a tick stamped before `start` reads negative
+            "frames": frames, "droppedFrames": dropped,
             "maxGapMs": Int((maxGap * 1000).rounded()),
-        ]
+            "samples": samples,
+            "geometry": geometry(of: to),
+        ])
+    }
+
+    private func write(_ line: [String: Any]) {
         guard var data = try? JSONSerialization.data(withJSONObject: line, options: .sortedKeys)
         else { return }
         data.append(0x0A)
@@ -148,6 +224,7 @@ private final class Run: NSObject {
 
     private func finish() {
         link?.invalidate()
+        write(["done": true, "switches": step])
         // Quit only after the last line is on disk.
         queue.async { DispatchQueue.main.async { NSApp.terminate(nil) } }
     }

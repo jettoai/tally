@@ -34,24 +34,25 @@ extension SettingsView {
             real: claudeRows.contains(.notInstalled) && integrations.noClaudeAccount)
         let claudeSkipNote = noClaudeAccount ? L("No Claude account on this Mac, so Install all skips this row.") : nil
         let codexSkipNote = noCodexAccount ? L("No Codex account on this Mac, so Install all skips this row.") : nil
-        SettingsPage {
-            VStack(alignment: .leading, spacing: 16) {
-                // The two whole-set buttons live in the header. The Shared harness is deliberately
-                // NOT in their set (see `allIntegrationEntries`).
-                IntegrationsHeader(
-                    missing: installAllActions(integrations, statuses: statuses, entries: entries),
-                    installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 },
-                    asksPassword: asksPassword, skipsCodex: noCodexAccount, skipsClaude: noClaudeAccount)
-                    .disabled(locked)
-                // A build nobody installed observes but never mutates the shared integrations (hard-gated
-                // in IntegrationsStore too); say so instead of offering buttons that refuse.
-                if !IntegrationsCapture.simulating {
-                    SettingsDevBanner(message: L("Integrations are managed by the installed release app."))
-                }
-                autoFollowNotices(integrations)
-                if let error = IntegrationsCapture.cliInstallPreview ?? integrations.lastError {
-                    SettingsNoticeBar(kind: .warning, title: error)
-                }
+        SettingsPage(title: L("Integrations"),
+                     subtitle: L("Hooks, status lines and tools Tally adds to your CLIs. Each one removes cleanly."),
+                     trailing: {
+            // The two whole-set buttons live in the header. The Shared harness is deliberately
+            // NOT in their set (see `allIntegrationEntries`).
+            IntegrationsHeader(
+                missing: installAllActions(integrations, statuses: statuses, entries: entries),
+                installed: zip(statuses, entries).filter { $0.0 == .installed }.map { $0.1.2 },
+                asksPassword: asksPassword, skipsCodex: noCodexAccount, skipsClaude: noClaudeAccount)
+                .disabled(locked)
+        }) {
+            // A build nobody installed observes but never mutates the shared integrations (hard-gated
+            // in IntegrationsStore too); say so instead of offering buttons that refuse.
+            if !IntegrationsCapture.simulating {
+                SettingsDevBanner(message: L("Integrations are managed by the installed release app."))
+            }
+            autoFollowNotices(integrations)
+            if let error = IntegrationsCapture.cliInstallPreview ?? integrations.lastError {
+                SettingsNoticeBar(kind: .warning, title: error)
             }
             // Disabled on exactly what the hard gate refuses (`guardNotDev`, IntegrationsStore).
             // The Harness group is outside it, on purpose: it has its own receipt and is the one
@@ -222,36 +223,6 @@ extension SettingsView {
         }
     }
 
-    // MARK: Notices
-
-    /// What the app did without being asked, said once, with the way back beside it
-    /// (IntegrationsAutoFollow.swift).
-    ///
-    /// A STRIP AT THE TOP OF THIS PANE rather than a window, an alert or a badge somewhere else: this
-    /// is where the thing it is about lives, so the sentence sits above the group it names and the
-    /// Undo beside it is the row's own Remove. It stands until it is dismissed or undone, launches
-    /// included, because nobody was at the machine when the install happened and a notice they were
-    /// not there for is not a notice.
-    @ViewBuilder
-    private func autoFollowNotices(_ integrations: IntegrationsStore) -> some View {
-        ForEach(integrations.autoFollowNotices, id: \.self) { key in
-            if let component = IntegrationsStore.autoFollowComponent(key) {
-                // The name is an ARGUMENT, never spelled into the key: a message built by
-                // interpolation has a catalog key that only exists for whatever it was
-                // built from that day (localizationchecks.swift).
-                SettingsNoticeBar(
-                    kind: .info,
-                    title: String(format: L("Tally enabled %@ for your Claude accounts."), component.title()),
-                    message: L("Your other Claude integrations were already installed, so this one followed. Undo removes it again, and Tally will not put it back.")) {
-                    Button(L("Undo")) { integrations.undoAutoFollow(component) }
-                        .buttonStyle(.borderless).font(.system(size: SettingsType.noticeTitle, weight: .medium))
-                    Button(L("Dismiss")) { integrations.dismissAutoFollowNotice(key) }
-                        .buttonStyle(.borderless).font(.system(size: SettingsType.noticeTitle, weight: .medium))
-                }
-            }
-        }
-    }
-
     // MARK: Whole-set control
 
     /// Every entry the header's Install all / Remove all act on.
@@ -324,9 +295,10 @@ extension SettingsView {
                         Button(status == .notInstalled ? L("Install") : L("Reinstall"), action: install)
                     }
                     if status.offersRemoval, removable {
-                        Button(L("Remove"), action: remove)
+                        Button(L("Remove"), action: remove).foregroundStyle(.secondary)
                     }
                 }
+                .buttonStyle(InlineButtonStyle())
             }
             // Why a row is broken, or that a project folder wins over it: said on the row, because
             // it is the user's next step and a hover is not where a next step lives.
@@ -374,8 +346,8 @@ extension SettingsView {
     }
 }
 
-/// The page header with its two whole-set buttons. A struct of its own because the confirmation
-/// dialog needs state, and an extension of `SettingsView` cannot hold any.
+/// The page header's right-hand slot: the two whole-set buttons. A struct of its own because the
+/// confirmation dialog needs state, and an extension of `SettingsView` cannot hold any.
 private struct IntegrationsHeader: View {
     let missing: [() -> Void]
     let installed: [() -> Void]
@@ -387,8 +359,7 @@ private struct IntegrationsHeader: View {
     @State private var confirmingRemoveAll = IntegrationsCapture.confirm
 
     var body: some View {
-        SettingsPageHeader(title: L("Integrations"),
-                           subtitle: L("Hooks, status lines and tools Tally adds to your CLIs. Each one removes cleanly.")) {
+        HStack(spacing: 8) {
             // Buttons appear only when they have work to do, so the pair doubles as an at-a-glance
             // "is everything on?" answer.
             if !missing.isEmpty {

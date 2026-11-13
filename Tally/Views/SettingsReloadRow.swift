@@ -25,6 +25,7 @@ struct SettingsReloadRow: View {
                         icon: "arrow.clockwise.circle",
                         info: L("Each supervised Claude session restarts when it goes idle, so edited hooks and instructions take effect. Conversations continue.")) {
                 Button(L("Reload")) { ReloadAction.presentConfirm() }
+                    .buttonStyle(InlineButtonStyle())
             }
             // Sessions that predate this feature cannot hear a request, and this row is where
             // the feature is explained, so it is where that has to be said. Same sentence as the

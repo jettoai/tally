@@ -16,32 +16,33 @@ extension SettingsAccountsView {
     /// The column names over a card's rows, in the row's own grid. The sharing and figure names
     /// carry the legend the pane used to end on.
     func compactHeader() -> some View {
-        HStack(spacing: t.gap) {
-            Color.clear.frame(width: t.lead, height: 1)
-            headerLabel("Name").frame(width: t.nameColumn, alignment: .leading)
-            headerLabel("Account").frame(maxWidth: .infinity, alignment: .leading)
+        TableHeaderFrame {
             HStack(spacing: t.gap) {
-                headerLabel("Plan").frame(width: t.plan, alignment: .leading)
-                headerLabel("5 hours", hover: figuresLegend).frame(width: t.cell, alignment: .trailing)
-                headerLabel("Week", hover: figuresLegend).frame(width: t.cell, alignment: .trailing)
+                Color.clear.frame(width: t.lead, height: 1)
+                headerLabel("Name").frame(width: t.nameColumn, alignment: .leading)
+                headerLabel("Account").frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: t.gap) {
+                    headerLabel("Plan").frame(width: t.plan, alignment: .leading)
+                    headerLabel("5 hours", hover: figuresLegend).frame(width: t.cell, alignment: .trailing)
+                    headerLabel("Week", hover: figuresLegend).frame(width: t.cell, alignment: .trailing)
+                }
+                .frame(width: t.status, alignment: .leading)
+                headerLabel("Sharing", hover: sharingLegend)
+                    .frame(width: t.share + 2 * t.shareBleed).frame(width: t.share)
+                headerLabel("Menu bar").frame(width: t.toggle)
+                headerLabel("Enabled").frame(width: t.toggle)
+                Color.clear.frame(width: t.actions, height: 1)
+                Color.clear.frame(width: t.handle, height: 1)
             }
-            .frame(width: t.status, alignment: .leading)
-            headerLabel("Sharing", hover: sharingLegend).frame(width: t.share)
-            headerLabel("Menu bar").frame(width: t.toggle)
-            headerLabel("Enabled").frame(width: t.toggle)
-            Color.clear.frame(width: t.actions, height: 1)
-            Color.clear.frame(width: t.handle, height: 1)
         }
-        .frame(height: 22)
-        .padding(.horizontal, t.inset)
     }
 
+    /// A column name at the header's own size; a long translation wraps to a second line (the header
+    /// is 28 high, two lines of 11 points fit) rather than shrinking.
     private func headerLabel(_ key: String, hover: String? = nil) -> some View {
         Text(L(key))
-            .font(.system(size: t.secondary, weight: .medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.65)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
             .tallyTooltip(hover ?? "")
     }
 
@@ -74,65 +75,66 @@ extension SettingsAccountsView {
         let signIn = signInState(of: item)
         let email = identityEmail(item, usage: usage)
         let homeName = home(of: item).map { AccountIdentity.homeName($0) }
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: t.gap) {
-                Text(badge.map { "\($0)" } ?? "")
-                    .font(.system(size: t.secondary).monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                    .frame(width: t.lead, alignment: .trailing)
+        return TableRowFrame {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: t.gap) {
+                    Text(badge.map { "\($0)" } ?? "")
+                        .font(.system(size: t.header).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                        .frame(width: t.lead, alignment: .trailing)
 
-                // The name alone: the personal mark moved to the reserve line under the row, so a
-                // long name is never shortened to make room for it.
-                nameField(item, font: .system(size: t.name, weight: .medium), fieldWidth: t.nameColumn)
-                    .frame(width: t.nameColumn, alignment: .leading)
+                    // The name alone: the personal mark moved to the reserve line under the row, so a
+                    // long name is never shortened to make room for it.
+                    nameField(item, font: .system(size: t.name, weight: .medium), fieldWidth: t.nameColumn)
+                        .frame(width: t.nameColumn, alignment: .leading)
 
-                // No address: the config home in its place, faint and small, so two rows given the
-                // same nickname can still be told apart without hovering. A login that just landed
-                // says so instead, in the same faint style, until its address arrives (B-1702).
-                Group {
-                    switch AccountIdentity.column(email: email, signingIn: isSigningIn(item), home: homeName) {
-                    case .address(let address):
-                        Text(address).font(.system(size: t.secondary)).foregroundStyle(.secondary)
-                    case .signingIn:
-                        Text(L("Signing in") + "…")
-                            .font(.system(size: t.secondary)).foregroundStyle(.tertiary)
-                    case .home(let name):
-                        Text(name ?? "")
-                            .font(.system(size: t.secondary)).foregroundStyle(.tertiary)
+                    // No address: the config home in its place, faint and small, so two rows given the
+                    // same nickname can still be told apart without hovering. A login that just landed
+                    // says so instead, in the same faint style, until its address arrives (B-1702).
+                    Group {
+                        switch AccountIdentity.column(email: email, signingIn: isSigningIn(item), home: homeName) {
+                        case .address(let address):
+                            Text(address).font(.system(size: t.secondary)).foregroundStyle(.secondary)
+                        case .signingIn:
+                            Text(L("Signing in") + "…")
+                                .font(.system(size: t.secondary)).foregroundStyle(.tertiary)
+                        case .home(let name):
+                            Text(name ?? "")
+                                .font(.system(size: t.secondary)).foregroundStyle(.tertiary)
+                        }
                     }
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .tallyTooltip([email, homeName].compactMap { $0 }.joined(separator: "\n"))
+
+                    compactStatus(item, usage: usage, enabled: enabled, signIn: signIn)
+                        .frame(width: t.status, alignment: .leading)
+
+                    // A fixed slot even when empty: a bare frame on an empty branch collapses, and
+                    // took the HStack spacing with it, shifting every column to its left.
+                    Color.clear.frame(width: t.share, height: 14).overlay { shareMark(item) }
+                    menuBarToggle(item.id)
+                        .disabled(!enabled)
+                        .opacity(enabled ? 1 : 0.35)
+                        .frame(width: t.toggle)
+                    enabledSwitch(item).frame(width: t.toggle)
+                    actionsMenu(item, moveUp: moveUp, moveDown: moveDown)
+                    // The panel row's grip, on the same outer edge (ReorderHandle).
+                    ReorderHandle(bright: hoveredAccountID == item.id || rowLift?.id == item.id)
+                        .font(.caption)
+                        .frame(width: t.handle)
                 }
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .tallyTooltip([email, homeName].compactMap { $0 }.joined(separator: "\n"))
+                .frame(height: t.rowHeight)
+                .opacity(enabled ? 1 : 0.6)
 
-                compactStatus(item, usage: usage, enabled: enabled, signIn: signIn)
-                    .frame(width: t.status, alignment: .leading)
-
-                // A fixed slot even when empty: a bare frame on an empty branch collapses, and
-                // took the HStack spacing with it, shifting every column to its left.
-                Color.clear.frame(width: t.share, height: 14).overlay { shareMark(item) }
-                menuBarToggle(item.id)
-                    .disabled(!enabled)
-                    .opacity(enabled ? 1 : 0.35)
-                    .frame(width: t.toggle)
-                enabledSwitch(item).frame(width: t.toggle)
-                actionsMenu(item, moveUp: moveUp, moveDown: moveDown)
-                // The panel row's grip, on the same outer edge (ReorderHandle).
-                ReorderHandle(bright: hoveredAccountID == item.id || rowLift?.id == item.id)
-                    .font(.caption)
-                    .frame(width: t.handle)
+                AccountLoginHealthView(accountID: item.id, owner: rowOwner(item, usage: usage),
+                    canRenew: RenewLoginStore.shared.canRenew(accountID: item.id,
+                        providerID: item.providerID, home: item.launchHome),
+                    showsExpiry: signIn == .signedIn)
+                    .padding(.leading, t.lead + t.gap)
             }
-            .frame(height: t.rowHeight)
-            .opacity(enabled ? 1 : 0.6)
-
-            AccountLoginHealthView(accountID: item.id, owner: rowOwner(item, usage: usage),
-                canRenew: RenewLoginStore.shared.canRenew(accountID: item.id,
-                    providerID: item.providerID, home: item.launchHome),
-                showsExpiry: signIn == .signedIn)
-                .padding(.leading, t.lead + t.gap)
         }
-        .padding(.horizontal, t.inset)
     }
 
     /// The plan and the two figures, or in their place the one thing that matters more: a login
@@ -147,12 +149,13 @@ extension SettingsAccountsView {
         } else if let usage {
             HStack(spacing: t.gap) {
                 Text(usage.planName ?? "")
-                    .font(.system(size: t.secondary, weight: .medium))
+                    .font(.system(size: t.header))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.primary.opacity(0.08))
-                        .opacity(usage.planName == nil ? 0 : 1))
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, 7).frame(height: 20)
+                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.08)).opacity(usage.planName == nil ? 0 : 1))
                     .frame(width: t.plan, alignment: .leading)
                 if usage.metrics.isEmpty, let error = usage.error {
                     Text(error).font(.system(size: t.secondary)).foregroundStyle(.secondary).lineLimit(1)

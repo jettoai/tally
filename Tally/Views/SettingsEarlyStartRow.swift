@@ -22,6 +22,7 @@ struct SettingsEarlyStartRow: View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
             if store.isEnabled {
+                SettingsDivider()
                 quietHoursRow
             }
         }
@@ -61,7 +62,7 @@ struct SettingsEarlyStartRow: View {
                        tooltipPreview: .settingsquiet) {
             HStack(spacing: 8) {
                 if store.quietHours.isEnabled {
-                    Text(L("From")).font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
+                    Text(L("From")).font(.system(size: SettingsType.rowSubtitle)).foregroundStyle(.secondary)
                     picker(hour: store.quietHours.startHour, minute: store.quietHours.startMinute) {
                         hour, minute in
                         let held = store.quietHours
@@ -69,7 +70,7 @@ struct SettingsEarlyStartRow: View {
                             isEnabled: held.isEnabled, startHour: hour, startMinute: minute,
                             endHour: held.endHour, endMinute: held.endMinute))
                     }
-                    Text(L("to")).font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
+                    Text(L("to")).font(.system(size: SettingsType.rowSubtitle)).foregroundStyle(.secondary)
                     picker(hour: store.quietHours.endHour, minute: store.quietHours.endMinute) {
                         hour, minute in
                         let held = store.quietHours

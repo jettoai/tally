@@ -5,26 +5,17 @@ import SwiftUI
 /// SwiftUI `Settings` scene. The scene's `showSettingsWindow:` action is unreliable for an LSUIElement
 /// accessory app (and the selector name is OS-version-sensitive), which made the gear appear to hang.
 ///
-/// Sizing: the view measures the pane in front of it (non-lazy layout, so the measurement is the
-/// truth) and reports it here; the window follows, exactly content-fit, holding its top edge and
-/// changing at once, never animated (Albert, 2026-10-10: the growing window read as the pane
-/// "unrolling"; a click lands the new pane and its height together). Same proven pattern as the pinned panel
-/// (`onContentSize`): `sizingOptions = []` keeps this the ONLY size authority - two authorities
-/// recursed the layout engine into a stack overflow once (see PinnedPanelController).
-/// Fixed-size window (macOS HIG for settings): with an exact fit there is nothing to resize.
+/// Sizing: ONE FIXED SIZE ON EVERY PANE (`SettingsChrome.windowWidth` by `windowHeight`), written
+/// by `applyFixedSize` and nothing else. The view reports no size; only the display can overrule the
+/// height (a short screen caps it). The window used to follow the pane in front, which made it grow
+/// and shrink under the click on every sidebar switch (Albert, 2026-08-23, 2026-10-10, 2026-11-12).
+/// `sizingOptions = []` keeps this the ONLY size authority - two authorities recursed the layout
+/// engine into a stack overflow once (see PinnedPanelController).
 @MainActor
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
 
     private(set) var window: NSWindow?
-    /// THE HEIGHT THE VIEW LAST REPORTED, kept rather than applied and forgotten.
-    ///
-    /// The number is a CONTENT height and says nothing about a display; what it becomes depends on
-    /// the display the window is on (`ResizeAnchor.fittedWindowHeight`). So it is kept, because the
-    /// window can move to a display with a different answer while the content stays exactly as it
-    /// was - and the report that would recompute it never comes, precisely because nothing changed.
-    /// Also the echo guard: a report of the height already reported is not a resize.
-    private var reportedHeight: CGFloat = 0
 
     /// Restore-on-launch flag, mirroring MainWindowController: an update relaunch is quit +
     /// launch, and Settings is the LIKELIEST open window then (the update button lives in it).
@@ -87,26 +78,12 @@ final class SettingsWindowController {
     func show(restoring: Bool = false, activating: Bool = true) {
         StatusItemController.shared?.closePopover()
         if window == nil {
-            let hosting = NSHostingController(rootView: SettingsView(
-                store: .shared, settings: .shared,
-                onContentHeight: { [weak self] height in self?.applyContentHeight(height) },
-                onPaneSwitch: { [weak self] height in self?.applyPaneSwitch(height) }))
+            let hosting = NSHostingController(rootView: SettingsView(store: .shared, settings: .shared))
             hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = Self.makeWindow(hosting)
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
-            // Dev flavour says so in the title bar strip, top right over the pane, visible from
-            // every pane and not just About: the panel header's own tag, as a titlebar accessory.
-            if BuildVariant.isDev || OverlayApp.menuBarEditionText != nil {
-                let badge = NSHostingView(rootView: HStack(spacing: 6) {
-                    if BuildVariant.isDev { TallyDevTagView() }
-                    OverlayApp.titlebarEditionBadge
-                }.padding(.trailing, 8))
-                badge.frame.size = badge.fittingSize
-                let accessory = NSTitlebarAccessoryViewController()
-                accessory.view = badge
-                accessory.layoutAttribute = .trailing
-                window.addTitlebarAccessoryViewController(accessory)
-            }
+            // The DEV and edition tags sit in the sidebar's brand row (SettingsView), visible from
+            // every pane; the title bar strip carries nothing of ours.
             // No title bar of its own (B-1355, System Settings' shape): the content runs to the top
             // edge, the sidebar colour carries up behind the traffic lights, and the pane names the
             // section, so the window title stays only for the Window menu and Cmd-Tab. The strip
@@ -115,14 +92,14 @@ final class SettingsWindowController {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.isReleasedWhenClosed = false
-            window.setContentSize(NSSize(width: 500, height: 640))   // placeholder until the first report
+            // The fixed size; the display may still cap the height (`applyFixedSize`, every show).
+            window.setContentSize(NSSize(width: SettingsChrome.windowWidth, height: SettingsChrome.windowHeight))
             // Autosave carries the POSITION across launches, for the restore path that does not
             // re-derive one (a launch-time restore keeps where the user left the window); every
             // ordinary summon re-derives it below (pointer's screen), so a stale saved origin never
-            // wins there. The height it saves along with it is never read as the truth - the first
-            // content report re-fits it - but v5's saved frames are heights of the TALLEST pane,
-            // from before this window fitted the pane in front of it, so the name moves on rather
-            // than opening the window too tall for the turn it takes to be corrected.
+            // wins there. The size it saves along with it is never read as the truth: every show
+            // rewrites it (`applyFixedSize`), so the name does not need to move on when sizing
+            // changes.
             window.setFrameAutosaveName("TallySettingsWindow.v6")
             ActivationPolicy.track(window)
             NotificationCenter.default.addObserver(
@@ -142,14 +119,21 @@ final class SettingsWindowController {
         // gear reading as a dead button. A window that is key is one they are working in, and that
         // one is never moved.
         if !restoring, window?.summonShouldFollowPointer == true {
-            // FITTED TO THE DISPLAY IT IS GOING TO, BEFORE IT IS PLACED THERE. A window that grew to
-            // a tall display's cap keeps that height when it is summoned to a short one - the
-            // content is the same, so no report arrives to recompute it - and a clamp alone can only
-            // save the title bar while the buttons stay off the bottom of the screen (found by
-            // review of 8cdafad). Fitting first is what lets the placement below be made around the
-            // height the window will actually have.
-            fitHeight(on: NSScreen.pointerScreen)
+            // SIZED FOR THE DISPLAY IT IS GOING TO, BEFORE IT IS PLACED THERE. A window that kept a
+            // tall display's height when it is summoned to a short one cannot be saved by a clamp
+            // alone: the clamp saves the title bar while the buttons stay off the bottom of the
+            // screen (found by review of 8cdafad). Sizing first is what lets the placement below be
+            // made around the height the window will actually have.
+            applyFixedSize(on: NSScreen.pointerScreen)
             window?.centerOnPointerScreen()
+            window?.clampOnScreen()
+        }
+        // A restore keeps the saved position but not the saved size: the frame autosave brings back
+        // whatever size the window last had (an older build's pane-fitted height, say), and nothing
+        // else would correct it now that no content report does. The clamp is for a window that
+        // grows past the foot of its display.
+        if restoring {
+            applyFixedSize(on: window?.screen)
             window?.clampOnScreen()
         }
         Self.recordRestore(true)
@@ -181,62 +165,28 @@ final class SettingsWindowController {
         window?.makeFirstResponder(nil)
     }
 
-    /// Follow the view's reported content height (an Integrations page, an account added) IN THE
-    /// SAME COMMIT as the content that changed it. Deferring a runloop turn, as this once did, left
-    /// one frame of the new page cut by the old height on every taller page (measured 2026-10-10:
-    /// 1 to 2 clipped frames per page switch with the deferral, 0 without).
+    /// THE ONE PLACE THIS WINDOW'S SIZE IS WRITTEN: the fixed width and height, the height capped to
+    /// what `screen` has (`ResizeAnchor.fittedWindowHeight`, the one piece of arithmetic for that).
     ///
-    /// Why the pinned panel's "defer the resize" lesson does not apply here: that crash was TWO size
-    /// authorities feeding each other. `sizingOptions = []` leaves this frame write the only one, so
-    /// the re-layout it causes reports the same height and stops at the dead band below: one extra
-    /// layout, never a loop. Continuous but self-quieting: the ±1pt dead band stops echo.
-    private func applyContentHeight(_ height: CGFloat) {
-        guard height.isFinite, height > 1, abs(height - reportedHeight) > 1 else { return }
-        reportedHeight = height
-        fitHeight(on: window?.screen)
-    }
-
-    /// A pane switch: the window takes the new pane's height IN THE SAME TURN as the click that
-    /// changed the pane, so the frame and the pane reach the screen in one commit and no frame shows
-    /// either of them without the other. Not deferred like a report: this is called from a button
-    /// action (`SettingsView.select`), not from inside a SwiftUI update, so there is no layout pass
-    /// to resize out of. The report that follows is the same height and stops at the echo guard.
-    private func applyPaneSwitch(_ height: CGFloat) {
-        guard height.isFinite, height > 1 else { return }
-        reportedHeight = height
-        fitHeight(on: window?.screen)
-    }
-
-    /// Apply the last reported height against `screen`, which is the ONE place this window's size is
-    /// written and the only reason `reportedHeight` is kept.
-    ///
-    /// The display is passed in rather than read off the window because the two callers know
-    /// different things: a report knows only that the window is wherever it is, and a summon knows
-    /// where the window is ABOUT to be - and a summon that fitted against the display the window is
-    /// leaving would compute the height it already has.
-    ///
-    /// Reported height = the pane in front, or the sidebar when that is the taller of the two
-    /// (`SettingsView.heightProbe`). Fit it whole - a pane must never need a scrollbar for want of
-    /// window - and let only the display overrule that, which is what makes a pane taller than the
-    /// screen the one case that scrolls. The cap's arithmetic is `ResizeAnchor.fittedWindowHeight`.
+    /// The display is passed in rather than read off the window because a summon knows where the
+    /// window is ABOUT to be, and sizing against the display it is leaving would answer with the
+    /// height it already has. Holds the top edge, so a cap change moves only the bottom edge.
     ///
     /// Never animated: an animated height is a pane visibly unrolling (Albert, 2026-10-10).
-    private func fitHeight(on screen: NSScreen?) {
-        guard let window, reportedHeight > 1 else { return }
+    private func applyFixedSize(on screen: NSScreen?) {
+        guard let window else { return }
         // The titlebar strip, measured: with a full-size content view the content view spans the
         // whole frame, and the layout rect is the part below the strip the view lays out in.
         let chrome = window.frame.height - window.contentLayoutRect.height
         let visible = (screen ?? window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
-        // The display overrules the fit first, then the design cap: a tall pane scrolls inside the
-        // window rather than stretching the window to hold it (B-3747).
-        let target = min(ResizeAnchor.fittedWindowHeight(reported: reportedHeight, chrome: chrome,
-                                                         visibleHeight: visible),
-                         SettingsChrome.maxWindowHeight)
-        guard abs(target - window.frame.height) > 1 else { return }
+        let height = ResizeAnchor.fittedWindowHeight(reported: SettingsChrome.windowHeight - chrome,
+                                                     chrome: chrome, visibleHeight: visible)
+        let size = CGSize(width: SettingsChrome.windowWidth, height: height)
+        guard ResizeAnchor.needsResize(from: window.frame.size, to: size) else { return }
         var frame = window.frame
         let top = frame.maxY
-        frame.size.height = target
-        frame.origin.y = top - target   // keep the title bar where the user sees it
+        frame.size = size
+        frame.origin.y = top - height   // keep the title bar where the user sees it
         window.setFrame(frame, display: true)
     }
 }

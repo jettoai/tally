@@ -20,9 +20,11 @@ struct SettingsCodexHarness: View {
                             .accessibilityIdentifier("harness-install")
                     } else {
                         Button(L("Remove")) { harness.remove() }
+                            .foregroundStyle(.secondary)
                             .disabled(!harness.mayWrite || harness.busy).accessibilityIdentifier("harness-remove")
                     }
                 }
+                .buttonStyle(InlineButtonStyle())
             }
             if !harness.hasInstallation || IntegrationsCapture.showNotInInstallAll {
                 SettingsSubRow(title: L("Not part of Install all. Use this row's Install button."))

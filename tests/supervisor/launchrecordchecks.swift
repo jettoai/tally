@@ -112,7 +112,9 @@ func runLaunchRecordChecks() {
     let supervisor = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     let codex = (try? String(contentsOfFile: "TallyCLI/CodexSupervisor.swift", encoding: .utf8)) ?? ""
     check("both supervisors publish a launch record",
-          supervisor.contains("publishSessionLaunch(provider: provider.id, args: args")
+          // #623: the Claude supervisor records the typed args only (the axes that follow the profile
+          // are dropped, reassertchecks.swift); Codex injects no launch default, so its args are typed.
+          supervisor.contains("publishSessionLaunch(provider: provider.id, args: typedLaunchArgs(args, following: follow)")
               && codex.contains("publishSessionLaunch(provider: provider.id, args: args"))
     check("the Claude supervisor publishes it after it marks itself live",
           (supervisor.range(of: "markSupervisorLive(pid: supervisorPID)")?.lowerBound ?? supervisor.endIndex)

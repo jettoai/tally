@@ -46,7 +46,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
     /// under a running supervisor, and the git probe behind the key must not run on every 2s tick.
     /// Its model and effort are re-read at each relaunch (B-1091); the account it pins keeps this.
-    var project = projectPolicy(provider.id)
+    let projectKey = projectPolicyKey(cwd: cwd)
+    var project = loadProjectPolicies().policy(provider.id, for: projectKey)
+    /// When that profile was last written, so a `tally project set` mid-session is noticed without
+    /// reading the file's content every tick (FollowAdoption.swift, #623).
+    var projectStamp = ProjectPolicyStamp()
 
     // THE USER'S PRE-SPAWN CHECK, first launch only (PreSpawnHook.swift). Before the signal
     // dispositions below, so Ctrl+C still ends tally while the check runs, and before any state
@@ -259,7 +263,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // once, because a supervisor's cwd cannot change under it (SwitchRequest.swift).
     writeSupervisorCwd(cwd, pid: supervisorPID)
     // How this session was launched, for reopening it after a reboot (SessionLaunchRecord.swift).
-    publishSessionLaunch(provider: provider.id, args: args, cwd: cwd, pid: supervisorPID, resumed: resumed)
+    publishSessionLaunch(provider: provider.id, args: typedLaunchArgs(args, following: follow), cwd: cwd,
+                         pid: supervisorPID, resumed: resumed)
     /// What the last handoff told the next child about the restart (RestartWake.swift): nil on a
     /// fresh first launch and on a fresh relaunch. An exec is a self-update whose old image counted
     /// nothing here, and a first launch that resumes a conversation is a session brought back by
@@ -607,6 +612,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // has to be asked of the file the user set (AutoSteering.swift; `runLaunchDir` asks it
             // the same way for the shim).
             let appPolicy = launchPolicy(provider.id)
+            // A profile written since the last tick restates what this session should run, even to
+            // the value it already has (FollowAdoption.swift, #623): read BEFORE the policy below.
+            noteProjectReasserted(stamp: &projectStamp, project: &project, state: &followState,
+                                  providerID: provider.id, key: projectKey)
             let fleetPolicy = effectivePolicy(appPolicy, project: project)
             /// What each account's owner keeps for their own browser use, from the same document
             /// and on the same terms as the policy above: read once here and handed to every mover

@@ -112,6 +112,11 @@ expect(runInstall("echo 'Checksum verification failed'; exit 1", cliFound: false
 expect(runInstall("false | cat").outcome == .failed(.init(failure: .other, lastLine: "")),
        "the command runs under pipefail, so a failed download is a failed install")
 
+// 5b. the child starts with no signal blocked (the runner spawns from a GCD worker that blocks
+// SIGTERM and friends; an inherited mask makes the group ignore Cancel). Not a timing check.
+let r5b = runInstall("/usr/bin/python3 -I -c \"import signal; print('blocked=' + ','.join(sorted(s.name for s in signal.pthread_sigmask(signal.SIG_BLOCK, []))) + ';')\"")
+expect(r5b.log.contains("blocked=;"), "the script starts with an empty signal mask, so SIGTERM can reach it")
+
 // 6. cancel ends the whole process group
 let r6 = runInstall("sleep 30 | cat", cancelAfter: 1)
 var groupGone = false

@@ -76,12 +76,23 @@ enum ClaudeInstallRunner {
         defer { posix_spawn_file_actions_destroy(&actions); posix_spawnattr_destroy(&attributes) }
         // No input at all: a program that reads stdin gets EOF instead of waiting for a person. Its
         // own process group, so Cancel and the clocks can end bash, curl and the installer together.
+        // This runs on a GCD worker thread, which blocks the asynchronous signals, and a spawned child
+        // inherits that mask: without a clean one SIGTERM never reaches bash, sleep, cat or curl and
+        // killGroup can only insist. So the child starts with an empty mask and default dispositions.
+        var noSignals = sigset_t()
+        sigemptyset(&noSignals)
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        for sig in [SIGTERM, SIGINT, SIGHUP, SIGPIPE] { sigaddset(&defaults, sig) }
+        let flags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF
         guard posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0) == 0,
               posix_spawn_file_actions_adddup2(&actions, replica, STDOUT_FILENO) == 0,
               posix_spawn_file_actions_adddup2(&actions, replica, STDERR_FILENO) == 0,
               posix_spawn_file_actions_addclose(&actions, primary) == 0,
               posix_spawn_file_actions_addclose(&actions, replica) == 0,
-              posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0,
+              posix_spawnattr_setflags(&attributes, Int16(flags)) == 0,
+              posix_spawnattr_setsigmask(&attributes, &noSignals) == 0,
+              posix_spawnattr_setsigdefault(&attributes, &defaults) == 0,
               posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
             close(primary); close(replica)
             return report(.other, "")

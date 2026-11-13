@@ -159,11 +159,20 @@ extension StatusItemController {
         }
     }
 
-    /// A private build's mark: a small template symbol, so it follows the menu bar's tint.
+    /// A private build's mark: a small symbol. The menu bar does not tint an image inside an attributed
+    /// title (a template one stays black), so it is drawn in white on a dark bar and black on a light one,
+    /// chosen each time it is drawn, so an appearance flip needs no rebuild.
     private static func noteMark(_ note: String, symbol: String) -> NSAttributedString {
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: note)?
-            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
-        image?.isTemplate = true
+        guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: note)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold)) else { return NSAttributedString() }
+        let image = NSImage(size: glyph.size, flipped: false) { rect in
+            glyph.draw(in: rect)
+            let dark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            (dark ? NSColor.white : NSColor.black).setFill()
+            rect.fill(using: .sourceIn)
+            return true
+        }
+        image.accessibilityDescription = note
         let attachment = NSTextAttachment()
         attachment.image = image
         return NSAttributedString(attachment: attachment)

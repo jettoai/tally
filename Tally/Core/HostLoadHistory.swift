@@ -12,7 +12,7 @@ import Foundation
 /// a later build may add a field without breaking this reader (the "add, never change" rule the
 /// host-health report keeps):
 ///
-///     2026-11-04T02:31:05+08:00 load1=12.34 free_gb=53.1 mem_pct=73 cpu_pct=41 swap_gb=3.2 pressure=1 cores=16
+///     2026-11-04T02:31:05+08:00 load1=12.345 free_gb=53.1 mem_pct=73 cpu_pct=41 swap_gb=3.2 pressure=1 cores=16
 struct HostLoadSample: Equatable, Sendable {
     var at: Date
     var load1: Double
@@ -97,11 +97,12 @@ func hostLoadCPUPct(_ percent: Double?) -> Int? {
 }
 
 /// One sample as a line, newline included. `String(format:)` without a locale, so a comma-decimal
-/// system language cannot split a number into two fields. The timestamp is to the second and
+/// system language cannot split a number into two fields. `load1` carries three decimals: two let 47.999 read back as 48.00,
+/// which a `< 48` gate then counted as a fail. The timestamp is to the second and
 /// carries the local offset; compare times as `Date`s, never as these strings.
 func hostLoadLine(_ sample: HostLoadSample, timeZone: TimeZone = .current) -> String {
     var line = hostLoadDateFormatter(timeZone: timeZone).string(from: sample.at)
-    line += String(format: " load1=%.2f free_gb=%.1f", sample.load1, sample.freeGB)
+    line += String(format: " load1=%.3f free_gb=%.1f", sample.load1, sample.freeGB)
     if let memPct = sample.memPct { line += " mem_pct=\(memPct)" }
     if let cpuPct = sample.cpuPct { line += " cpu_pct=\(cpuPct)" }
     if let swapGB = sample.swapGB, swapGB.isFinite, swapGB >= 0 { line += String(format: " swap_gb=%.1f", swapGB) }

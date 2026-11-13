@@ -48,7 +48,7 @@ do {
     let s = HostLoadSample(at: moment(2026, 11, 4, 2, 31, 5), load1: 12.345, freeBytes: 57_037_979_648,
                            memPct: 73, cores: 16)
     expect(hostLoadLine(s, timeZone: taipei.timeZone)
-           == "2026-11-04T02:31:05+08:00 load1=12.35 free_gb=53.1 mem_pct=73 cores=16\n",
+           == "2026-11-04T02:31:05+08:00 load1=12.345 free_gb=53.1 mem_pct=73 cores=16\n",
            "a sample is one exact line, local offset and all")
     var noMem = s; noMem.memPct = nil
     expect(!hostLoadLine(noMem, timeZone: taipei.timeZone).contains("mem_pct"), "an unreadable memory figure leaves the field out")
@@ -56,7 +56,11 @@ do {
     expect(!hostLoadLine(s, timeZone: taipei.timeZone).contains(","), "no decimal comma in a line")
     let back = parseHostLoadLine(hostLoadLine(s, timeZone: taipei.timeZone).trimmingCharacters(in: .newlines),
                                  formatter: hostLoadDateFormatter())
-    expect(back?.load1 == 12.35 && back?.memPct == 73 && back?.cores == 16 && back?.at == s.at, "a line parses back to what it said")
+    expect(back?.load1 == 12.345 && back?.memPct == 73 && back?.cores == 16 && back?.at == s.at, "a line parses back to what it said")
+    let edge = HostLoadSample(at: s.at, load1: 47.999, freeGB: 40, memPct: nil, cpuPct: nil, cores: 16)
+    let edgeBack = parseHostLoadLine(hostLoadLine(edge, timeZone: taipei.timeZone).trimmingCharacters(in: .newlines),
+                                     formatter: hostLoadDateFormatter())
+    expect(edgeBack?.load1 == 47.999 && edgeBack!.load1 < 48, "a load just under a gate stays under it after the write and read back")
 }
 
 do {
@@ -292,15 +296,15 @@ do {
     let at = moment(2026, 11, 4, 2, 31, 5)
     let s = HostLoadSample(at: at, load1: 12.345, freeBytes: 57_037_979_648, memPct: 73, cpuPct: 41, cores: 16)
     expect(hostLoadLine(s, timeZone: taipei.timeZone)
-           == "2026-11-04T02:31:05+08:00 load1=12.35 free_gb=53.1 mem_pct=73 cpu_pct=41 cores=16\n",
+           == "2026-11-04T02:31:05+08:00 load1=12.345 free_gb=53.1 mem_pct=73 cpu_pct=41 cores=16\n",
            "a sample with a CPU share writes cpu_pct between mem_pct and cores")
     var noMem = s; noMem.memPct = nil
-    expect(hostLoadLine(noMem, timeZone: taipei.timeZone) == "2026-11-04T02:31:05+08:00 load1=12.35 free_gb=53.1 cpu_pct=41 cores=16\n",
+    expect(hostLoadLine(noMem, timeZone: taipei.timeZone) == "2026-11-04T02:31:05+08:00 load1=12.345 free_gb=53.1 cpu_pct=41 cores=16\n",
            "no memory reading: cpu_pct still sits before cores")
     var noCPU = s; noCPU.cpuPct = nil
     expect(!hostLoadLine(noCPU, timeZone: taipei.timeZone).contains("cpu_pct"), "an unreadable CPU share leaves the field out")
     let back = parseHostLoadLine(hostLoadLine(s, timeZone: taipei.timeZone).trimmingCharacters(in: .newlines), formatter: hostLoadDateFormatter())
-    expect(back?.cpuPct == 41 && back?.memPct == 73 && back?.cores == 16 && back?.load1 == 12.35 && back?.at == at,
+    expect(back?.cpuPct == 41 && back?.memPct == 73 && back?.cores == 16 && back?.load1 == 12.345 && back?.at == at,
            "a new line parses back with its CPU share")
     let old = parseHostLoadLine("2026-11-04T02:31:05+08:00 load1=1 free_gb=1 mem_pct=70 cores=4", formatter: hostLoadDateFormatter())
     expect(old != nil && old?.cpuPct == nil && old?.memPct == 70, "a line from before cpu_pct is valid and has no CPU share")
@@ -399,7 +403,7 @@ do {
     let s = HostLoadSample(at: at, load1: 12.345, freeBytes: 57_037_979_648, memPct: 73, cpuPct: 41, cores: 16,
                            swapBytes: 52_303_191_040, pressure: 2)
     let line = hostLoadLine(s, timeZone: taipei.timeZone)
-    expect(line == "2026-11-04T02:31:05+08:00 load1=12.35 free_gb=53.1 mem_pct=73 cpu_pct=41 swap_gb=48.7 pressure=2 cores=16\n",
+    expect(line == "2026-11-04T02:31:05+08:00 load1=12.345 free_gb=53.1 mem_pct=73 cpu_pct=41 swap_gb=48.7 pressure=2 cores=16\n",
            "a sample with swap and pressure writes both keys between cpu_pct and cores")
     let back = parseHostLoadLine(line.trimmingCharacters(in: .newlines), formatter: hostLoadDateFormatter())
     expect(back?.pressure == 2 && abs((back?.swapGB ?? -1) - 48.7) < 0.05 && back?.cpuPct == 41 && back?.cores == 16,

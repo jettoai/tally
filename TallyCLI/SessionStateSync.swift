@@ -135,7 +135,7 @@ struct SessionStateWriter {
     /// field, so a session sitting blocked while its subagents start and stop writing costs one
     /// write per flip - which is the price of being able to answer "why is this red" at all.
     mutating func sync(_ state: SupervisedState, reason: String?, noticeType: String? = nil,
-                       quiet: Bool? = nil, loginRequiredAt: Date? = nil,
+                       quiet: Bool? = nil, loginRequiredAt: Date? = nil, loginLastFailedAt: Date? = nil,
                        startupScreen: CodexStartupScreenRecord? = nil, identity: SessionIdentity,
                        pid: String, dir: URL = supervisorStateDir, now: Date = Date(),
                        notify: (String) -> Void = postSessionStateChanged) {
@@ -144,7 +144,8 @@ struct SessionStateWriter {
             state: word,
             // The age of THIS state, not of this tick: preserved while the word holds steady.
             since: current?.state == word ? (current?.since ?? now) : now,
-            updatedAt: now, reason: reason, loginRequiredAt: loginRequiredAt, noticeType: noticeType, quiet: quiet,
+            updatedAt: now, reason: reason, loginRequiredAt: loginRequiredAt,
+            loginLastFailedAt: loginLastFailedAt, noticeType: noticeType, quiet: quiet,
             accountID: identity.accountID,
             directory: identity.directory, project: identity.project, worktree: identity.worktree,
             model: identity.model, childPid: identity.childPid,
@@ -159,6 +160,7 @@ struct SessionStateWriter {
             if unchanged == record { return }
         }
         let moved = current?.state != word || current?.loginRequiredAt != loginRequiredAt
+            || current?.loginLastFailedAt != loginLastFailedAt
             || current?.startupScreen?.screenID != startupScreen?.screenID
         // NOTHING IS BELIEVED UNTIL IT IS ON DISK. The guard above judges the next write against
         // `current`, so updating it after a publish that failed would suppress every retry for the
@@ -264,7 +266,7 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     let spoken = loginRequiredAt != nil ? "Sign in again in this session (/login)."
         : (state == .blocked ? said ?? question.flatMap({ userQuestionTools[$0] }) : nil)
     writer.sync(state, reason: spoken, noticeType: waiting ? notice?.type : nil, quiet: quiet,
-                loginRequiredAt: loginRequiredAt,
+                loginRequiredAt: loginRequiredAt, loginLastFailedAt: watcher.loginLastFailedAt,
                 identity: SessionIdentity(accountID: accountID, directory: project.path,
                                           project: project.name, worktree: project.worktree,
                                           model: model, childPid: childPid,

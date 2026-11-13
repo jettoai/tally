@@ -60,7 +60,8 @@ final class LoginHealthStore {
             guard let failedAt = row.record?.loginRequiredAt, let accountID = row.accountID else { return nil }
             return LoginHealthSession(id: row.id + ":" + String(row.childPid ?? 0) + ":" + accountID,
                                       accountID: accountID, childPid: row.childPid,
-                                      directory: row.directory, failedAt: failedAt)
+                                      directory: row.directory, failedAt: failedAt,
+                                      lastFailedAt: row.record?.loginLastFailedAt)
         }.filter { !alerts.isRetired($0) }
         announce()
     }
@@ -101,8 +102,9 @@ final class LoginHealthStore {
     /// of marks that went is returned so the caller can say so. This is a deliberate inference
     /// (B-4530): Tally cannot read what credential each running session holds, so a session that
     /// is idle and genuinely still failing stops showing red until it is used again and fails anew
-    /// (a later `failedAt` is not retired). The "renewed" notice carries the sentence that covers
-    /// that gap. Persisted, so a relaunch keeps it retired.
+    /// (a failure reported after `at` is not retired, even in an episode that began before it).
+    /// The "renewed" notice carries the sentence that covers that gap. Persisted, so a relaunch
+    /// keeps it retired.
     @discardableResult
     func retireSessions(_ accountID: String, at: Date) -> Int {
         let before = sessions.count

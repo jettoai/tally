@@ -7,6 +7,8 @@ struct LoginHealthSession: Equatable, Identifiable {
     let childPid: Int?
     let directory: String?
     let failedAt: Date
+    /// The newest failure of the same episode; `failedAt` stays its first, which keys the alert.
+    var lastFailedAt: Date? = nil
 
     var episode: String { id + ":" + String(failedAt.timeIntervalSince1970) }
 }
@@ -24,12 +26,13 @@ struct LoginHealthAlerts: Codable, Equatable {
     var sessions: Set<String> = []
     var deadlines: [String: Date] = [:]
     var expiryKeys: Set<String> = []
-    /// Per account, when a renewal landed: every session failure at or before it is retired (B-4530).
+    /// Per account, when a renewal landed: every session whose latest failure is at or before it is
+    /// retired (B-4530).
     /// Persisted with the rest, so a relaunch does not bring the same red mark back.
     var retiredAt: [String: Date] = [:]
 
     func isRetired(_ session: LoginHealthSession) -> Bool {
-        retiredAt[session.accountID].map { session.failedAt <= $0 } ?? false
+        retiredAt[session.accountID].map { (session.lastFailedAt ?? session.failedAt) <= $0 } ?? false
     }
 
     mutating func retire(_ accountID: String, at: Date) { retiredAt[accountID] = at }

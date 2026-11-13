@@ -55,6 +55,7 @@ func runLoginSignalChecks() {
     }
     let service: [String: Any] = ["type": "assistant", "isSidechain": false,
                                   "message": ["model": "claude-fable-5", "content": []]]
+    let authFields = try! JSONSerialization.jsonObject(with: Data(error.utf8)) as! [String: Any]
     check("a real main-chain assistant response clears login",
           watcherAfterScanning([error, event(service)]).loginRequiredAt == nil)
     let rejected: [[String: Any]] = [
@@ -75,6 +76,16 @@ func runLoginSignalChecks() {
     var auth = try! JSONSerialization.jsonObject(with: Data(error.utf8)) as! [String: Any]
     check("repeated authentication errors preserve the unresolved episode timestamp",
           watcherAfterScanning([error, event(auth, at: 120)]).loginRequiredAt == launch.addingTimeInterval(60))
+    check("lastFailedAt follows the newest failure while loginRequiredAt keeps the first",
+          watcherAfterScanning([error, event(authFields, at: 120)]).loginLastFailedAt == launch.addingTimeInterval(120))
+    for (name, extra) in [("a sidechain", ["isSidechain": true]), ("another session's", ["sessionId": "another-session"])] as [(String, [String: Any])] {
+        check("\(name) later authentication error does not advance lastFailedAt",
+              watcherAfterScanning([error, event(authFields.merging(extra) { $1 }, at: 120)]).loginLastFailedAt == launch.addingTimeInterval(60))
+    }
+    check("a pre-launch authentication error does not advance lastFailedAt",
+          watcherAfterScanning([error, event(authFields, at: -60)]).loginLastFailedAt == launch.addingTimeInterval(60))
+    check("a real response clears lastFailedAt with the failure",
+          watcherAfterScanning([error, event(service)]).loginLastFailedAt == nil)
     auth["isSidechain"] = true
     check("a sidechain authentication error does not block the session",
           watcherAfterScanning([event(auth)]).loginRequiredAt == nil)
@@ -162,6 +173,72 @@ func runLoginSignalChecks() {
     let older = #"{"state":"idle","since":"2026-08-13T10:00:00Z","updatedAt":"2026-08-13T10:00:00Z"}"#
     try! Data(older.utf8).write(to: dir.appendingPathComponent("older.state"))
     check("older records decode with no login signal", readSessionState(pid: "older", dir: dir) != nil
-          && readSessionState(pid: "older", dir: dir)?.loginRequiredAt == nil)
+          && readSessionState(pid: "older", dir: dir)?.loginRequiredAt == nil
+          && readSessionState(pid: "older", dir: dir)?.loginLastFailedAt == nil)
 
+    // B-4530: failure, renewal, then the same session fails again. Real parser, real transcript file,
+    // real sidecar; the app-side session is built from what the record says, as refreshSessions does.
+    var renewWatcher = watcherAfterScanning([error])
+    var renewWriter = SessionStateWriter()
+    func renewTick() {
+        _ = renewWatcher.sawCapHit()
+        syncSessionState(&renewWriter, pid: "renewal", project: PickProject(name: "test", path: "/test"),
+                         accountID: "claude:test", childPid: nil, model: nil, supervisorVersion: "test",
+                         watcher: &renewWatcher, keyboardBurstAt: nil, dir: dir)
+    }
+    func appendToRenewTranscript(_ line: String) {
+        let handle = try! FileHandle(forWritingTo: renewWatcher.file!)
+        try! handle.seekToEnd()
+        try! handle.write(contentsOf: Data(("\n" + line + "\n").utf8))
+        try! handle.close()
+    }
+    func renewSession() -> LoginHealthSession? {
+        guard let record = readSessionState(pid: "renewal", dir: dir), let at = record.loginRequiredAt else { return nil }
+        return LoginHealthSession(id: "renewal", accountID: "claude:test", childPid: nil, directory: nil,
+                                  failedAt: at, lastFailedAt: record.loginLastFailedAt)
+    }
+    var healthAlerts = LoginHealthAlerts()
+    renewTick()
+    let firstSession = renewSession()!
+    check("the first failure raises one session alert",
+          healthAlerts.advance(sessions: [firstSession], deadlines: [:], known: [], now: launch).count == 1)
+    appendToRenewTranscript(event(authFields, at: 80))
+    renewTick()
+    healthAlerts.retire("claude:test", at: launch.addingTimeInterval(90))
+    check("a failure repeated before the renewal stays retired",
+          healthAlerts.isRetired(renewSession()!))
+    check("retiring clears the old episode key so the next failure can alert",
+          healthAlerts.advance(sessions: [], deadlines: [:], known: [], now: launch).isEmpty)
+    appendToRenewTranscript(event(authFields, at: 120))
+    renewTick()
+    let again = renewSession()!
+    let retiredAt = healthAlerts.retiredAt["claude:test"]!
+    print("login-renewal: isRetired=\(healthAlerts.isRetired(again)) retiredAt=+\(Int(retiredAt.timeIntervalSince(launch))) loginRequiredAt=+\(Int(again.failedAt.timeIntervalSince(launch))) lastFailedAt=\(again.lastFailedAt.map { "+\(Int($0.timeIntervalSince(launch)))" } ?? "nil")")
+    check("a failure after the renewal in the same session is not retired",
+          !healthAlerts.isRetired(again) && again.failedAt == launch.addingTimeInterval(60)
+            && again.lastFailedAt == launch.addingTimeInterval(120) && again.episode == firstSession.episode)
+    check("that failure raises exactly one new alert",
+          healthAlerts.advance(sessions: [again], deadlines: [:], known: [], now: launch).count == 1)
+    appendToRenewTranscript(event(authFields, at: 150))
+    renewTick()
+    check("further failures in the same episode raise no more alerts",
+          healthAlerts.advance(sessions: [renewSession()!], deadlines: [:], known: [], now: launch).isEmpty)
+    appendToRenewTranscript(event(service, at: 160))
+    renewTick()
+    check("a response after the failures leaves nothing for the app to show",
+          renewSession() == nil && readSessionState(pid: "renewal", dir: dir)?.loginLastFailedAt == nil)
+
+    // A repeat failure moves lastFailedAt only; the app must hear about it at once.
+    var repeatNotes: [String] = []
+    var repeatWriter = SessionStateWriter()
+    func publishFailure(_ lastAt: TimeInterval) {
+        repeatWriter.sync(.blocked, reason: "waiting", loginRequiredAt: launch,
+                          loginLastFailedAt: launch.addingTimeInterval(lastAt),
+                          identity: SessionIdentity(accountID: "claude:test"), pid: "repeat", dir: dir,
+                          notify: { repeatNotes.append($0) })
+    }
+    publishFailure(0)
+    publishFailure(0)
+    publishFailure(30)
+    check("a repeated failure notifies the app and an identical tick does not", repeatNotes == ["repeat", "repeat"])
 }

@@ -67,6 +67,8 @@ struct SessionStateRecord: Codable, Equatable, Sendable {
     var reason: String?
     /// Unresolved authentication failure observed in this session, absent on older records.
     var loginRequiredAt: Date?
+    /// The newest failure of that same episode, absent on older records (B-4530).
+    var loginLastFailedAt: Date?
     /// WHICH KIND OF EVENT is standing unanswered (`UserNotice.type`): the difference between a
     /// permission request and "the floor is free", which the sentence above does not carry. nil
     /// when no event stands, and when the one that does named no type.

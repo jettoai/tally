@@ -36,6 +36,8 @@ struct TranscriptWatcher {
     var loginSignals = TranscriptLoginSignals()
     /// The unresolved authentication error in the currently bound transcript.
     var loginRequiredAt: Date? { loginSignals.requiredAt }
+    /// The newest failure of that episode; `loginRequiredAt` stays the first one.
+    var loginLastFailedAt: Date? { loginSignals.lastFailedAt }
     var offset: UInt64 = 0
     /// How many bytes one `sawCapHit` may read before leaving the rest to the next tick
     /// (`transcriptScanBudgetBytes`, issue #3). A var so a suite can drive a catch-up in small steps.

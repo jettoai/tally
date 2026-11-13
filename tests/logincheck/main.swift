@@ -735,7 +735,7 @@ expect(renewSource.contains("LoginStatusStore.shared.loginRenewed(accountID)"),
        "a renewal that reported success drops the stale verdict itself, so the chip cannot "
            + "survive on a probe that ran before the login did")
 expect(renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
-        && renewSource.components(separatedBy: "handOff(accountID, providerID: providerID, home: home)")
+        && renewSource.components(separatedBy: "handOff(accountID, providerID: providerID, home: home, named: named,")
             .count == 3,
        "…and BOTH Terminal handoffs (the refused announcement and the failed attempt) force the "
            + "rounds that follow - the failed-then-finished-by-hand path is the reported one")
@@ -746,7 +746,7 @@ expect(renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
 // a round, and the one thing that would otherwise notice the credential landing - the config-dir
 // watcher - is fail-open by contract. Without a ladder of its own the chip sat there until the poll
 // timer came round, which is up to fifteen minutes at the interval the user can set.
-expect(renewSource.contains("private func handOff(_ accountID: String, providerID: String, home: String) {")
+expect(renewSource.contains("private func handOff(_ accountID: String, providerID: String, home: String, named: String,")
         && renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
         && renewSource.contains("await UsageStore.shared.refresh()"),
        "a handed-off login asks for rounds of its own rather than only being allowed to have them")

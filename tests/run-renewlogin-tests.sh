@@ -10,6 +10,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/renewlogin/main.swift \
-  Tally/Core/RenewLoginCommand.swift Tally/Core/RenewLoginRunner.swift Tally/Core/CLISearchPath.swift Tally/Core/ClaudeStableExecutable.swift
+swiftc -o "$out" tests/renewlogin/main.swift tests/renewlogin/identitychecks.swift \
+  Tally/Core/RenewalIdentity.swift Tally/Core/RenewLoginCommand.swift Tally/Core/RenewLoginRunner.swift Tally/Core/CLISearchPath.swift Tally/Core/ClaudeStableExecutable.swift
 "$out"

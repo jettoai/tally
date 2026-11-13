@@ -466,5 +466,7 @@ let usageStoreSource = readSource("Tally/Stores/UsageStore.swift")
 expect(usageStoreSource.contains("RenewLoginStore.shared.discoveryReported(dormant: dormantIDs)"),
        "every refresh tells the store what discovery found, so a landed login stops settling at once")
 
+await identityChecks(expect: expect, root: stubs, storeSource: storeSource)
+
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

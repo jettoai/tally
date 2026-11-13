@@ -44,6 +44,15 @@ enum SharedLogin {
         return duplicates
     }
 
+    /// The ids among `homes` already signed into `identity`, in id order: what the add-account flow
+    /// asks about a login that just landed in a NEW home, before it announces a new account
+    /// (B-4530). The same equality `duplicates` groups by, without its kept/duplicate verdict,
+    /// which is about homes that have been around and has no answer for a home with no history.
+    static func homes(sharing identity: String?, among homes: [Home]) -> [String] {
+        guard let identity, !identity.isEmpty else { return [] }
+        return homes.filter { $0.identity == identity }.map(\.id).sorted()
+    }
+
     /// Every account of one shared login, kept first then the duplicates in id order: the labels
     /// the message names.
     static func group(keptID: String, duplicates: [String: String]) -> [String] {

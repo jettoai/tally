@@ -107,6 +107,14 @@ final class LoginStatusStore {
         if changed { persistIdentities() }
     }
 
+    /// The person chose to keep the account a home now holds ("Keep the new account", B-4530): its
+    /// address is the new answer, in the memory and in this run's probe cache alike.
+    func adoptIdentity(accountID: String, email: String) {
+        emails[accountID] = email
+        guard identities.remember(accountID: accountID, email: email) else { return }
+        persistIdentities()
+    }
+
     /// The account was removed outright, so its remembered address goes with it - a recreated home
     /// takes the same id (see `AccountIdentityMemory.forget`).
     ///

@@ -70,7 +70,7 @@ func runAdd(args: [String]) -> Never {
             }
         }
     }
-    warn("adding a \(provider.id) account at ~/\(prepared.name) - finish the login below; the account shows up in Tally as soon as the login completes")
+    warn("adding a \(provider.id) account at ~/\(prepared.name) - finish the login below with an account that is not in Tally yet; it shows up in Tally as soon as the login completes")
     exec(provider.cli, args: provider.id == "codex" ? ["login"] : [],
          env: launchEnv(provider, home: prepared.dir.path))
 }

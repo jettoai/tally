@@ -30816,6 +30816,251 @@
           }
         }
       }
+    },
+    "Wrong account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入的帳號不對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录的账号不对"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアカウントでログインしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 계정으로 로그인됨"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yanlış hesap"
+          }
+        }
+      }
+    },
+    "You signed in as %1$@, but this account is %2$@. Switch to %2$@ in your browser, then sign in again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你登入的是 %1$@，但這個帳號是 %2$@。請在瀏覽器切換到 %2$@，再重新登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你登录的是 %1$@，但这个账号是 %2$@。请在浏览器切换到 %2$@，再重新登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ でログインしましたが、このアカウントは %2$@ です。ブラウザで %2$@ に切り替えてから、もう一度ログインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@(으)로 로그인했지만 이 계정은 %2$@입니다. 브라우저에서 %2$@(으)로 전환한 뒤 다시 로그인하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ olarak giriş yaptınız ancak bu hesap %2$@. Tarayıcınızda %2$@ hesabına geçin, ardından tekrar giriş yapın."
+          }
+        }
+      }
+    },
+    "You signed in as a different account than this one. Switch accounts in your browser, then sign in again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你登入的帳號和這個帳號不同。請在瀏覽器切換帳號，再重新登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你登录的账号和这个账号不同。请在浏览器切换账号，再重新登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントとは別のアカウントでログインしました。ブラウザでアカウントを切り替えてから、もう一度ログインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정과 다른 계정으로 로그인했습니다. 브라우저에서 계정을 전환한 뒤 다시 로그인하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesaptan farklı bir hesapla giriş yaptınız. Tarayıcınızda hesap değiştirin, ardından tekrar giriş yapın."
+          }
+        }
+      }
+    },
+    "Keep the new account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留新帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留新账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいアカウントを使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 계정 유지"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni hesabı koru"
+          }
+        }
+      }
+    },
+    "Login not confirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入未確認"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录未确认"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログインを確認できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인을 확인하지 못했습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giriş doğrulanamadı"
+          }
+        }
+      }
+    },
+    "Tally could not read which account signed in. If this account still shows signed out, sign in again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 無法讀出登入的是哪個帳號。如果這個帳號仍顯示已登出，請重新登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 无法读出登录的是哪个账号。如果这个账号仍显示已登出，请重新登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はどのアカウントでログインしたか読み取れませんでした。このアカウントがまだログアウト済みと表示される場合は、もう一度ログインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 어떤 계정으로 로그인했는지 읽지 못했습니다. 이 계정이 계속 로그아웃으로 표시되면 다시 로그인하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally hangi hesapla giriş yapıldığını okuyamadı. Bu hesap hâlâ oturumu kapalı görünüyorsa tekrar giriş yapın."
+          }
+        }
+      }
+    },
+    "This sign-in is the same account as %@, which Tally already has. Sign in with an account that is not in Tally yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這次登入的帳號和 %@ 是同一個，Tally 已經有了。請改用還沒加入 Tally 的帳號登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这次登录的账号和 %@ 是同一个，Tally 已经有了。请改用还没加入 Tally 的账号登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回ログインしたアカウントは %@ と同じで、Tally にはすでにあります。まだ Tally にないアカウントでログインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번에 로그인한 계정은 %@ 와(과) 같은 계정으로, Tally에 이미 있습니다. 아직 Tally에 없는 계정으로 로그인하세요."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu giriş, Tally'de zaten bulunan %@ ile aynı hesap. Tally'de henüz olmayan bir hesapla giriş yapın."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

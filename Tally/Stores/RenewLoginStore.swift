@@ -75,11 +75,19 @@ final class RenewLoginStore {
         // being resolved, and the surface that gets here without a button to disable (the expiry
         // notification's action) has nothing else standing between it and a second login.
         guard !isRenewing(accountID), !cooldown.isCoolingDown(accountID, now: Date()),
-              let plan = RenewLoginCommand.plan(providerID: providerID),
+              RenewLoginCommand.plan(providerID: providerID) != nil,
               // The config-home variable, read from the same place the PATH shims read it, so a
               // third spelling of CLAUDE_CONFIG_DIR / CODEX_HOME can never drift in.
               let envKey = IntegrationsStore.Shim(rawValue: providerID)?.envKey
         else { return }
+        // Who this home is MEANT to be, taken BEFORE the login can change what the home says
+        // (B-4530): the login is asked for that address and then held to it once it lands. Claude
+        // only: Codex keeps its identity in a file Tally never opens.
+        let isClaude = providerID == ClaudeAccounts.providerID
+        let expected = isClaude ? Self.expectedIdentity(accountID: accountID, home: home) : nil
+        let stateBefore = isClaude ? Self.claudeReading(home: home).modifiedAt : nil
+        guard let plan = RenewLoginCommand.plan(providerID: providerID,
+                                                loginHint: expected?.email) else { return }
         // The signed-in address names the account; the nickname ("Claude 5") only does to the user
         // who chose it, and a notification is read away from every list that pairs the two. The
         // account being renewed is often one no poll has named yet, so Claude's own config file
@@ -116,22 +124,38 @@ final class RenewLoginStore {
                 // login in it), so the login-status probe is told to stop skipping rounds for this
                 // account - otherwise a sign-in finished in that window leaves the "Login expired"
                 // chip up for the rest of the probe interval.
-                handOff(accountID, providerID: providerID, home: home)
+                handOff(accountID, providerID: providerID, home: home, named: named,
+                        expected: expected, stateBefore: stateBefore)
                 inFlight.remove(accountID)
                 return
             }
             let outcome = await RenewLoginRunner.run(executable: executable, plan: plan,
                                                     environment: environment)
+            // A login that reports success is not yet a login into THIS account (B-4530): the CLI
+            // writes whoever the browser was signed in as. The check runs before every success
+            // effect below, so a wrong account earns no cooldown, no settling, no retired session
+            // marks and no onboarding note - only the notice that says what happened.
+            var landing = RenewalIdentity.Verdict.match
+            if case .renewed = outcome, isClaude {
+                landing = await RenewalIdentity.confirm(expected: expected, before: stateBefore) {
+                    Self.claudeReading(home: home)
+                }
+            }
             // Entered BEFORE the in-flight flag drops, in the same synchronous step: the instant
             // that flag goes every surface re-renders and offers the sign-in again, while discovery
             // still has this account down as signed out (AccountSignIn.swift).
-            if case .renewed = outcome {
+            if case .renewed = outcome, landing == .match {
                 cooldown.succeeded(accountID, at: Date())
                 beginSettling(accountID)
             }
             inFlight.remove(accountID)
             switch outcome {
             case .renewed:
+                guard landing == .match else {
+                    await announceUnmatched(landing, accountID: accountID, named: named,
+                                            expected: expected)
+                    return
+                }
                 // The login is in, and that is all the login wrote. Claude Code's first-run wizard
                 // is what records having BEEN through it, so a home signed in this way still opens
                 // on the theme picker and asks for a sign-in that already happened - which is the
@@ -165,7 +189,8 @@ final class RenewLoginStore {
                 // Same reason as the announcement-refused path above, and this is the one the user
                 // actually hit: the first attempt failed, they finished the login in the Terminal
                 // window (or retried), and the chip has to come down on its own.
-                handOff(accountID, providerID: providerID, home: home)
+                handOff(accountID, providerID: providerID, home: home, named: named,
+                        expected: expected, stateBefore: stateBefore)
                 _ = await SystemAlert.post(
                     title: "\(named) · " + L("Login not renewed"),
                     body: Self.reason(failure) + " " + (opened
@@ -241,7 +266,16 @@ final class RenewLoginStore {
     /// It stops at the first round that says the account is no longer waiting on a login, and at
     /// the deadline either way, so a login abandoned in that Terminal window costs a file check
     /// every ten seconds for five minutes and nothing else.
-    private func handOff(_ accountID: String, providerID: String, home: String) {
+    ///
+    /// A landed credential is not yet the RIGHT account (B-4530). This path used to take the
+    /// landing at its word: it never looked at who had signed in, and it never retired the
+    /// account's session marks either, so a correct sign-in left the red marker up and a wrong one
+    /// went unnoticed. The landing is now checked the way a background login is (`expected` is
+    /// who the home was meant to be, `stateBefore` the state file's time at the handoff): a match
+    /// retires the marks, a mismatch says so and stops, and a home that would not say who is in it
+    /// is reported as unconfirmed without retiring anything.
+    private func handOff(_ accountID: String, providerID: String, home: String, named: String,
+                         expected: RenewalIdentity.Who?, stateBefore: Date?) {
         LoginStatusStore.shared.loginHandedOff(accountID)
         handoffPolls[accountID]?.cancel()
         let before = Self.credentialStamp(providerID: providerID, home: home)
@@ -257,6 +291,20 @@ final class RenewLoginStore {
                     // The gate's rounds start HERE, not at the handoff: any spent while the user
                     // was still typing were spent on a question nothing on disk could answer yet.
                     LoginStatusStore.shared.loginHandedOff(accountID)
+                    if providerID == ClaudeAccounts.providerID {
+                        let verdict = await RenewalIdentity.confirm(expected: expected,
+                                                                    before: stateBefore) {
+                            Self.claudeReading(home: home)
+                        }
+                        guard !Task.isCancelled else { return }
+                        if verdict == .match {
+                            _ = LoginHealthStore.shared.retireSessions(accountID, at: Date())
+                        } else {
+                            await announceUnmatched(verdict, accountID: accountID, named: named,
+                                                    expected: expected)
+                            if case .mismatch = verdict { return }
+                        }
+                    }
                 }
                 let tick = LoginProbeGate.handoffTick(
                     elapsed: Date().timeIntervalSince(started), credentialLanded: landed,
@@ -267,6 +315,63 @@ final class RenewLoginStore {
                 if tick == .askThenStop { return }
             }
         }
+    }
+
+    // MARK: Whose login landed (B-4530)
+
+    /// Says what a landing that is NOT a match means, with no success effect behind it, then asks
+    /// for a round so the card shows what is true now (a home that took somebody else's login
+    /// reads as a duplicate of that account's own home from here on).
+    private func announceUnmatched(_ verdict: RenewalIdentity.Verdict, accountID: String,
+                                   named: String, expected: RenewalIdentity.Who?) async {
+        NotificationRouter.shared.refreshCategories()
+        switch verdict {
+        case .match:
+            return
+        case .mismatch(let signedIn):
+            _ = await SystemAlert.post(
+                title: "\(named) · " + L("Wrong account"),
+                body: WrongAccountNotice.body(signedIn: signedIn, expected: expected?.email),
+                categoryID: WrongAccountNotice.categoryID,
+                userInfo: [WrongAccountNotice.accountKey: accountID])
+        case .unconfirmed:
+            _ = await SystemAlert.post(
+                title: "\(named) · " + L("Login not confirmed"),
+                body: L("Tally could not read which account signed in. If this account still shows signed out, sign in again."))
+        }
+        await UsageStore.shared.refresh(userInitiated: true)
+    }
+
+    /// The notification's "Keep the new account": the person signed in as somebody else ON
+    /// PURPOSE, so the home's identity is updated to who it now holds and the login counts as
+    /// renewed. Only this press changes what Tally remembers; a mismatch on its own never does.
+    func keepSignedInAccount(accountID: String) {
+        guard let account = UsageStore.shared.discoveredAccounts.first(where: { $0.id == accountID }),
+              let home = account.launchHome,
+              let email = ClaudeAccounts.profile(configDir: home).email else { return }
+        LoginStatusStore.shared.adoptIdentity(accountID: accountID, email: email)
+        LoginStatusStore.shared.loginRenewed(accountID)
+        markClaudeOnboardingComplete(providerID: account.providerID, home: home)
+        Task { await UsageStore.shared.refresh(userInitiated: true) }
+    }
+
+    /// Who the home is meant to be: Tally's remembered address first, the home's own file second
+    /// (RenewalIdentity.expectedIdentity says why in that order).
+    private static func expectedIdentity(accountID: String, home: String) -> RenewalIdentity.Who? {
+        let profile = ClaudeAccounts.profile(configDir: home)
+        return RenewalIdentity.expectedIdentity(
+            remembered: LoginStatusStore.shared.rememberedEmail(accountID),
+            profile: RenewalIdentity.Who(email: profile.email, uuid: profile.accountUUID))
+    }
+
+    /// What the home's state file says now, and when it last changed. Not main-actor work in
+    /// spirit (a file read), so it is `nonisolated`; the reads happen a few at a time while a
+    /// landing is confirmed.
+    nonisolated private static func claudeReading(home: String) -> RenewalIdentity.Reading {
+        let url = claudeStateFile(forConfigDir: URL(fileURLWithPath: home, isDirectory: true))
+        let profile = ClaudeAccounts.profile(configDir: home)
+        let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        return (RenewalIdentity.Who(email: profile.email, uuid: profile.accountUUID), modified)
     }
 
     /// Reads the credential fingerprint in one config home. Every part of it is an attribute read:

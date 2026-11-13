@@ -301,6 +301,13 @@ final class AddAccountStore {
     /// The provider comes from the RUN, never from the picker: `providerID` is a choice about the
     /// next add, and this is the one that just finished.
     private func land(_ prepared: AddedAccountHome, providerID: String) async {
+        // A login into an account Tally already has is not a new account (B-4530): nothing below
+        // runs, and the sheet stays on "pending" with the reason.
+        if let reason = await Self.duplicateLoginReason(providerID: providerID, dir: prepared.dir) {
+            phase = .pending(name: prepared.name, reason: reason, handoff: .none)
+            _ = await SystemAlert.post(title: L("Account not added") + " · ~/\(prepared.name)", body: reason)
+            return
+        }
         // The login wrote a credential and nothing else, so this home would meet its first
         // `tally claude` with Claude Code's first-run wizard - theme picker, sign-in prompt, for an
         // account that is signed in (ClaudeOnboarding.swift). Done here rather than only where the
@@ -320,16 +327,6 @@ final class AddAccountStore {
         await UsageStore.shared.refresh(userInitiated: true)
     }
 
-    private static func reason(_ error: Error) -> String {
-        switch error as? AddAccountFailure {
-        case .noFreeSlot:
-            return L("Every numbered account folder for this provider already has a login.")
-        case .couldNotCreateHome(let path):
-            return L("Tally could not create the account folder") + " (\(path))."
-        case nil:
-            return L("Tally could not prepare an account folder for the new account.")
-        }
-    }
 }
 
 /// The "no CLI yet" half of adding an account, shared by Settings' sheet and the welcome window:

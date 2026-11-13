@@ -29,7 +29,7 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     /// enough to repeat before each alert that carries a button.
     func refreshCategories() {
         UNUserNotificationCenter.current()
-            .setNotificationCategories(Set([ResetHintNotifier.category, LoginStatusStore.category, LoginHealthNotification.category,
+            .setNotificationCategories(Set([ResetHintNotifier.category, LoginStatusStore.category, WrongAccountNotice.category, LoginHealthNotification.category,
                                             CPUAlertMonitor.category, UpdateLagNotifier.category,
                                             ClearanceIdleNotifier.category] + OverlayApp.notificationCategories))
     }
@@ -57,6 +57,17 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
         if content.categoryIdentifier == LoginStatusStore.categoryID {
             if action == LoginStatusStore.renewActionID, let accountID {
                 Task { @MainActor in RenewLoginStore.shared.renew(accountID: accountID) }
+            }
+            completionHandler()
+            return
+        }
+        if content.categoryIdentifier == WrongAccountNotice.categoryID {
+            if let accountID {
+                if action == WrongAccountNotice.resignActionID {
+                    Task { @MainActor in RenewLoginStore.shared.renew(accountID: accountID) }
+                } else if action == WrongAccountNotice.keepActionID {
+                    Task { @MainActor in RenewLoginStore.shared.keepSignedInAccount(accountID: accountID) }
+                }
             }
             completionHandler()
             return

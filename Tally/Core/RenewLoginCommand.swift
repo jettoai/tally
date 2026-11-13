@@ -48,7 +48,14 @@ enum RenewLoginCommand {
     /// The markers are matched loosely (case-insensitively, on ANSI-stripped text) on purpose: a
     /// CLI update is free to reword its own screens, and the cost of a marker going stale has to be
     /// the timeout and the visible-Terminal fallback, never a login reported as something it wasn't.
-    static func plan(providerID: String) -> Plan? {
+    ///
+    /// `loginHint` is the address the account is meant to be (B-4530): Claude's `login` takes
+    /// `--email` to pre-fill the sign-in page (measured in the 2.1.323 binary: the option feeds the
+    /// OAuth URL's `login_hint`). It belongs AFTER `login`, because it is an option of that
+    /// subcommand and the main command rejects it anywhere else. A hint only pre-fills: a browser
+    /// already signed in as someone else is not stopped, so the landing check (RenewalIdentity) is
+    /// the gate and this only makes the wrong account less likely.
+    static func plan(providerID: String, loginHint: String? = nil) -> Plan? {
         switch providerID {
         case "claude":
             // --strict-mcp-config: the same guard the usage probe carries (ClaudeUsageCLI). A login
@@ -64,7 +71,8 @@ enum RenewLoginCommand {
             // The rejected order shipped because it was checked with `--help`, which prints its
             // screen and exits before any option is validated - appending a nonexistent flag to a
             // --help line "passes" no matter what. A flag is confirmed by a run that parses it.
-            return Plan(arguments: ["--strict-mcp-config", "auth", "login"],
+            let hint = loginHint.flatMap { $0.isEmpty ? nil : ["--email", $0] } ?? []
+            return Plan(arguments: ["--strict-mcp-config", "auth", "login"] + hint,
                         needsTerminal: true,
                         progressMarkers: ["opening browser", "browser didn't open"],
                         successMarkers: ["login successful", "logged in as"],

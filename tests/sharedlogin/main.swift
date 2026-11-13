@@ -64,6 +64,12 @@ check("R1e the fallback is stable too: round 1 kept AM by order, AM's memory got
 check("R1f an empty remembered email is no memory",
       SharedLogin.duplicates([home(am, "u1", remembered: "", current: ""),
                               home(gm, "u1", current: "gm@example.com")]) == [gm: am])
+check("S1 a login that landed in a new home is matched to the existing homes holding that identity",
+      SharedLogin.homes(sharing: "u1", among: [home(gm, "u1"), home(am, "u2"), home("c3", "u1")]) == ["c3", gm].sorted()
+          && SharedLogin.homes(sharing: "u9", among: [home(gm, "u1")]).isEmpty)
+check("S2 a landed login with no identity yet matches nothing",
+      SharedLogin.homes(sharing: nil, among: [home(gm, nil)]).isEmpty
+          && SharedLogin.homes(sharing: "", among: [home(gm, "")]).isEmpty)
 check("isSeat: only a row with no sameAccountAs", SharedLogin.isSeat(nil) && !SharedLogin.isSeat(gm))
 
 // Wiring, read as text (the store cannot be compiled in here).

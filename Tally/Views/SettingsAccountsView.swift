@@ -30,7 +30,7 @@ struct SettingsAccountsView: View {
                      trailing: { addAccountAction }) {
             // The reorder space and the row in hand live INSIDE the page's scroll view, so the rows'
             // frames and the floating copy share one space whatever the scroll offset.
-            VStack(alignment: .leading, spacing: SettingsChrome.sectionGap) {
+            VStack(alignment: .leading, spacing: PageSkeleton.sectionGap) {
                 ForEach(ProviderCatalog.descriptors, id: \.id) { descriptor in
                     providerGroup(id: descriptor.id, name: descriptor.name)
                 }
@@ -68,26 +68,19 @@ struct SettingsAccountsView: View {
         .onDisappear { rowLift = nil }
     }
 
-    /// Starts under the name column, so the number column reads as one unbroken strip.
-    private var rowDivider: some View {
-        let style = AccountTableStyle.current
-        return SettingsDivider(inset: style.inset + style.lead)
+    /// A row's top edge, starting under the name column so the number column reads as one unbroken
+    /// strip. Drawn as an overlay on the row, never as a sibling line: it takes no height, so the
+    /// rows keep the design's 36 point pitch (the design draws it as the row's own top edge).
+    var rowDivider: some View {
+        SettingsDivider(inset: AccountTableStyle.current.nameLeading)
     }
 
-    /// The line standing in for a provider's account rows while there are none, saying which of the
-    /// two reasons applies (AccountListState.swift). Before discovery has answered it borrows the
-    /// account row's own waiting vocabulary - mini spinner, "Loading…" - rather than the sentence
-    /// below it, which is a claim about this machine that nothing has checked yet.
-    private func placeholderRow(_ state: AccountListState) -> some View {
-        HStack(spacing: 10) {
-            Color.clear.frame(width: 22, height: 22)
-            if state == .discovering { ProgressView().controlSize(.mini) }
-            Text(state == .discovering ? L("Loading…") : L("No signed-in accounts found"))
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .padding(.leading, 18)
+    /// `-TallySettingsCapture accounts:loading` / `accounts:empty` (Debug captures only): the card's
+    /// placeholder state, whatever discovery has found, for photographing the two states.
+    private var forcedState: AccountListState? {
+        if SettingsCaptureLaunch.showsAccountsLoading { return .discovering }
+        if SettingsCaptureLaunch.showsAccountsEmpty { return .empty }
+        return nil
     }
 
     /// `-TallyDemoData YES` plus `-TallyDemoRenaming <n>` (the row opens with its rename field up),
@@ -113,13 +106,13 @@ struct SettingsAccountsView: View {
 
     @ViewBuilder
     private func providerGroup(id: String, name: String) -> some View {
-        let items = discovered(for: id)
-        VStack(alignment: .leading, spacing: SettingsChrome.headerToCard) {
+        let items = forcedState == nil ? discovered(for: id) : []
+        VStack(alignment: .leading, spacing: PageSkeleton.sectionTitleToCard) {
             // Count only when there is something to count - a "1" badge said nothing. Nothing sits
             // to the title's right: the provider switch is the card's first row, the add-account
             // entry is the page header's.
             PageSectionTitle(title: name, count: items.count > 1 ? items.count : nil,
-                                 icon: ProviderIconView(providerID: id, size: 14))
+                                 icon: ProviderIconView(providerID: id, size: 15))
             // Re-asked whenever the list or its order changes: the first account is the primary.
             .task(id: items.map(\.id) + items.compactMap(\.launchHome)) {
                 // Merged like the real reports: each provider group reports only its own rows, and
@@ -135,18 +128,16 @@ struct SettingsAccountsView: View {
             }
 
             // The card is always there now: switched off it holds just the provider's own switch.
-            VStack(spacing: 0) {
+            SettingsCard {
                 SettingsRow(title: String(format: L("Track %@"), name)) { providerToggle(id) }
                 if settings.isEnabled(id) {
-                    SettingsDivider(inset: SettingsChrome.dividerInsetPlain)
+                    // Edge to edge: the table's header opens under it.
+                    SettingsDivider(inset: 0)
                     // The table's switches, menus and spinners are small: seventeen regular
                     // switches in a column would outweigh the figures they sit beside.
                     accountList(id, items).controlSize(.small)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .modifier(SettingsCardSurface())
             // On the stable card, never on a row: a live reorder moves the rows, and SwiftUI
             // cancels a gesture whose view that diff tears down (the panel's lesson,
             // PopoverRootView). High priority after 4pt of travel, so a press that stays put
@@ -178,15 +169,14 @@ struct SettingsAccountsView: View {
 
     @ViewBuilder
     private func accountList(_ id: String, _ items: [ProviderAccount]) -> some View {
-        let state = AccountListState.resolve(hasDiscovered: store.hasDiscovered,
-                                             accountCount: items.count)
+        let state = forcedState ?? AccountListState.resolve(hasDiscovered: store.hasDiscovered,
+                                                            accountCount: items.count)
         if state != .populated {
-            placeholderRow(state)
+            accountPlaceholder(state, providerID: id)
         } else {
             compactHeader()
         }
         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-            rowDivider
             // The account's row and, under the marked account, its reserve line are one block: one
             // hover wash and no divider between them (B-2526 G17).
             VStack(alignment: .leading, spacing: 0) {
@@ -219,13 +209,13 @@ struct SettingsAccountsView: View {
                 if inside { hoveredAccountID = item.id }
                 else if hoveredAccountID == item.id { hoveredAccountID = nil }
             }
+            .overlay(alignment: .top) { rowDivider }
         }
         // The add in flight, at the end of the list where its account will land, until that
         // account is listed as itself (the watcher can adopt it a beat before the flow lands).
         if flow.runProviderID == id, SettingsPendingAccountRow.content(flow.phase) != nil,
            !flow.phase.isListed(among: items.compactMap(\.launchHome)) {
-            rowDivider
-            SettingsPendingAccountRow(flow: flow)
+            SettingsPendingAccountRow(flow: flow).overlay(alignment: .top) { rowDivider }
         }
     }
 
@@ -387,12 +377,12 @@ struct SettingsAccountsView: View {
             Image(systemName: "ellipsis")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 16, height: 16)
+                .frame(width: AccountTableStyle.current.actions, height: 16)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 16)
+        .frame(width: AccountTableStyle.current.actions)
         .background { if Self.demoRowID(forKey: "TallyDemoMenuOpen") == item.id { DemoMenuOpener() } }
         .tallyTooltip(L("Account actions"))
     }

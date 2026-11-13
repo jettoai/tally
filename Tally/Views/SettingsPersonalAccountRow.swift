@@ -70,10 +70,10 @@ extension SettingsAccountsView {
                 .tallyTooltipAroundControl(L("Each cell is 10%. The striped cells are the share kept for the web; click a cell to change it."))
         }
         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-        // ALIGNED WITH THE ACCOUNT'S NAME, not merely indented past it: this row is a property of
-        // the row above and the eye reads that from one shared left edge; the strip ends on the
+        // ALIGNED WITH THE ADDRESS COLUMN, not merely indented past the name: this row is a property
+        // of the row above and the eye reads that from one shared left edge; the strip ends on the
         // table's right edge, under the grip.
-        .padding(.leading, style.nameLeading)
+        .padding(.leading, style.addressLeading)
         .padding(.trailing, style.inset)
     }
 }

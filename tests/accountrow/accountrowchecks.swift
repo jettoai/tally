@@ -330,9 +330,14 @@ func runAccountRowChecks() {
     check("the pane asks the rule rather than reading emptiness as an answer",
           paneSource.contains("AccountListState.resolve(hasDiscovered: store.hasDiscovered")
               && paneSource.contains("if state != .populated"))
+    // The placeholders live one file over (SettingsAccountPlaceholders.swift), asked by the pane.
+    let placeholderSource = readSource("Tally/Views/SettingsAccountPlaceholders.swift")
     check("and the sentence is only ever reachable through that rule",
-          paneSource.components(separatedBy: "No signed-in accounts found").count == 2
-              && paneSource.contains("state == .discovering ? L(\"Loading…\")"))
+          !placeholderSource.isEmpty
+              && placeholderSource.components(separatedBy: "No signed-in accounts found").count == 2
+              && placeholderSource.contains("if state == .discovering {")
+              && paneSource.contains("accountPlaceholder(state, providerID: id)")
+              && !paneSource.contains("No signed-in accounts found"))
     // The pane opens before the first round finishes, so it asks for the pass itself instead of
     // waiting out every provider CLI that round polls.
     check("the pane starts the discovery it needs",

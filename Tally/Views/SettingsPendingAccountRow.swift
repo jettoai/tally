@@ -25,37 +25,39 @@ struct SettingsPendingAccountRow: View {
 
     var body: some View {
         if let content = Self.content(flow.phase) {
-            HStack(spacing: 10) {
-                Group {
-                    if content.failed {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    } else {
-                        // .mini all but vanished on a light background (B-1354 review).
-                        ProgressView().controlSize(.small)
+            // A table row (card C): the icon in the number column, the text from the name column on.
+            let t = AccountTableStyle.current
+            TableRowFrame {
+                HStack(spacing: t.gap) {
+                    Group {
+                        if content.failed {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        } else {
+                            // .mini all but vanished on a light background (B-1354 review).
+                            ProgressView().controlSize(.small)
+                        }
                     }
-                }
-                .frame(width: 22, height: 22)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(content.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Text(content.detail).font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 12)
-                // Only where the flow itself would allow it: a Terminal window still signing in to
-                // this home owns the login, and a second start here is the race the flow refuses.
-                if content.failed, flow.phase.allowsNewRun {
-                    Button(L("Try again")) {
-                        flow.beginEntry(providerID: flow.runProviderID)
-                        flow.start()
+                    .frame(width: t.lead, height: t.lead)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(content.title).font(.system(size: t.name, weight: .semibold)).lineLimit(1)
+                        Text(content.detail).font(.system(size: t.secondary)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .controlSize(.small)
-                    Button(L("Remove")) { flow.reset() }
+                    Spacer(minLength: 12)
+                    // Only where the flow itself would allow it: a Terminal window still signing in to
+                    // this home owns the login, and a second start here is the race the flow refuses.
+                    if content.failed, flow.phase.allowsNewRun {
+                        Button(L("Try again")) {
+                            flow.beginEntry(providerID: flow.runProviderID)
+                            flow.start()
+                        }
                         .controlSize(.small)
+                        Button(L("Remove")) { flow.reset() }
+                            .controlSize(.small)
+                    }
                 }
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .padding(.leading, 18)
         }
     }
 }

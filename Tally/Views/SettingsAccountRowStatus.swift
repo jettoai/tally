@@ -63,9 +63,9 @@ extension SettingsAccountsView {
         .fixedSize()
         .font(.system(size: AccountTableStyle.current.secondary, weight: .semibold))
         .foregroundStyle(SettingsChrome.signInText)
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(Capsule().fill(SettingsChrome.signInFill))
-        .contentShape(Capsule())
+        .padding(.horizontal, 8).frame(height: 22)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(SettingsChrome.signInFill))
+        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
     /// Whose row this is, in the words the row itself shows: the signed-in address when the store

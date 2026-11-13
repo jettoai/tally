@@ -345,6 +345,7 @@ extension TranscriptWatcher {
            lineIsCommandRecord(line.text, opening: nativeModelCommandOpening),
            let ts = line.timestamp, ts >= since {
             lastModelCommandAt = ts
+            lastModelCommandArgs = nativeModelCommandArgs(inLine: String(line.text))
             // WHERE it sits, which is what every later "after the command" test compares
             // against: the stamp above is for display and for the badge, and a transcript's
             // stamps do not run in order (`TurnRoot.seq`).

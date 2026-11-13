@@ -97,6 +97,10 @@ struct TranscriptWatcher {
     /// history, and that history holds every earlier `/model` - four of them in the session this was
     /// written for. A replayed one is not somebody changing the model now.
     var lastModelCommandAt: Date?
+    /// The argument that record carried (`/model sonnet` -> `sonnet`), nil for the picker. It is how
+    /// our own typed line is told from a person's `/model` inside the same window
+    /// (`ModelGapLedger.claimOwnCommand`).
+    var lastModelCommandArgs: String?
     /// The effort named by that line, when it named one. Best effort in the literal sense: the two
     /// shapes on this machine are "... for new sessions" and "... for new sessions with <effort>
     /// effort" (78 and 92 occurrences respectively), so an absent one is ordinary rather than a

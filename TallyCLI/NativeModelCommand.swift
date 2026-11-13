@@ -18,6 +18,17 @@ let nativeModelCommandTag = "<command-name>/model</command-name>"
 /// so the reading itself is done on the decoded content.
 let nativeModelStdoutPrefix = "<local-command-stdout>Set model to"
 
+/// The argument text of a `/model` invocation record (`<command-args>sonnet</command-args>`), or nil
+/// when it carried none (the picker). Every record of `/model sonnet` read on this machine on
+/// 2026-11-14 carried it (8 of 8), which is what lets us tell our own typed line from a person's.
+func nativeModelCommandArgs(inLine text: String) -> String? {
+    guard let open = text.range(of: "<command-args>"),
+          let close = text.range(of: "</command-args>", range: open.upperBound ..< text.endIndex)
+    else { return nil }
+    let args = text[open.upperBound ..< close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+    return args.isEmpty ? nil : args
+}
+
 /// What the CONTENT of a slash-command invocation opens with, whichever command it is: Claude Code
 /// writes `<command-message>` and `<command-name>` in an order that has changed between versions, so
 /// only the family is asserted (`lineIsCommandRecord`, TranscriptSignals.swift).

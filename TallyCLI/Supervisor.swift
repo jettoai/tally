@@ -83,6 +83,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // about to hand it to their first child.
     var launchArgs = removingOption(removingOption(args, "--no-handoff"), "--no-follow")
     if resumed { launchArgs = withoutPositionals(launchArgs) }
+    /// What the user typed on the command line, the declaration `launchArgs` stops being once a
+    /// relaunch rewrites it (ModelGapAttribution.swift).
+    let typedModel = launchPrimaryModel(typedLaunchArgs(args, following: follow), providerID: provider.id)
     /// The fallback profile fires at most once per session.
     var fallbackApplied = false
     /// Everything the launch-default follow remembers between ticks, seeded from this session's own
@@ -753,10 +756,25 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             observeDrift(&drift, watcher: &watcher, primary: effectivePrimary, pid: supervisorPID)
 
             // Our own `/model` is spent BEFORE the adoption below can read it as a person's choice:
-            // a capacity fallback that answered the turn after it would otherwise be pinned.
-            if let own = ownModelCommandStamp(&overloadRevert, commandAt: watcher.lastModelCommandAt),
-               own > (sessionModelState.servedModelCommandAt ?? .distantPast) {
-                sessionModelState.servedModelCommandAt = own
+            // a capacity fallback that answered the turn after it would otherwise be pinned. The
+            // order is the rule; the claim itself is the ledger's (ModelGapAttribution.swift).
+            sessionModelState.gap.settleOwnCommand(typedAt: overloadRevert.ownCommandSince,
+                                                   typedModel: overloadRevert.ownCommandModel,
+                                                   confirmedAt: overloadRevert.confirmedCommandAt,
+                                                   commandAt: watcher.lastModelCommandAt,
+                                                   args: watcher.lastModelCommandArgs, now: Date())
+            // WHY THE SESSION MAY BE RUNNING A MODEL OTHER THAN THE ONE IT WAS MEANT TO: attributed
+            // once, logged when the cause changes (ModelGapAttribution.swift). Only the command
+            // tier is read by anything yet.
+            if provider.id == "claude" {
+                tickModelGap(state: &sessionModelState, handledCapacityKeys: overloadRevert.brake.handled,
+                             reasserted: followState.reasserted, watcher: watcher,
+                             driftActive: drift.isActive, typedModel: typedModel,
+                             policyModel: fleetPolicy.model, projectDeclares: project.model != nil,
+                             executing: launchPrimaryModel(launchArgs, providerID: provider.id),
+                             spawnedAt: launchedAt,
+                             quotaEvidence: { modelGapQuotaEvidence(accountID: account.id,
+                                                                    snapshot: loadSnapshot()) })
             }
 
             // Where this session runs and what it runs there: a `tally switch` or a panel pin, a
@@ -1290,7 +1308,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 &overloadRevert, pid: supervisorPID, event: watcher.lastOverloadFallback,
                 actualModel: watcher.lastModel, primaryModel: effectivePrimary,
                 providerID: provider.id, driftActive: drift.isActive,
-                modelCommandAt: watcher.lastModelCommandAt, mode: overloadRevertMode,
+                modelCommandAt: watcher.lastModelCommandAt,
+                modelCommandArgs: watcher.lastModelCommandArgs, mode: overloadRevertMode,
                 hookInstalled: preModelSwitchHook,
                 typedAlready: action.typed != nil || resetTyped != nil || resumed != nil
                     || woke != nil || reserveHeld,
@@ -1299,11 +1318,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 draftSuspected: draftSuspected, waitingOnPerson: board.dialogPossible,
                 seen: board.seen)
             if reverted != nil { lastComposerWrite = Date() }
-            // Our own switch is not a person's choice: spend its stamp so the adoption skips it.
-            if let command = overloadRevert.confirmedCommandAt {
-                sessionModelState.servedModelCommandAt = command
-                overloadRevert.confirmedCommandAt = nil
-            }
             // AND THE ONE LINE NOBODY ASKED FOR: the account under this session is running out, and
             // the movers above cannot help a session that is busy (QuotaKnock.swift). Same door and
             // the same gates, after the request station rather than beside it - a tick that has just
@@ -1448,6 +1462,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                     providerID: provider.id, launchArgs: launchArgs)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
+                sessionModelState.gap.noteRelaunch(reason: plan.reason, model: plan.model, at: Date())
                 // Republish the account this conversation now runs on, and the pair the next child
                 // will run, rather than leaving either to a later tick that reads a token figure: a
                 // `tally switch` or a `tally model` from a shell outside this session has only that

@@ -415,6 +415,20 @@ func runNativeModelChecks() {
                                  primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog)
               && settled.pin.model == "claude-haiku-4-5")
 
+    // The 2026-11-13 shape (B-4551 S-D): the session was relaunched onto opus by a fallback profile,
+    // and the person types `/model sonnet` to get back. A person's command, read through the ledger
+    // as one, is adopted whatever the arguments say the session runs.
+    let backFromOpus = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-sonnet-5-5", id: "back")
+        + nextTurnOpens(at: 80))
+    var rewrittenState = freshState()
+    var rewrittenFollow = FollowState(launchArgs: ["--model", "opus"])
+    check("a person's /model sonnet on a session we rewrote to opus is adopted as their pin",
+          adoptNativeModelChoice(state: &rewrittenState, follow: &rewrittenFollow, watcher: backFromOpus,
+                                 primaryModel: "opus", launchArgs: ["--model", "opus"], log: testAuditLog)
+              && rewrittenState.pin.model == "claude-sonnet-5-5"
+              && rewrittenState.gap.servedCommandAt == launch.addingTimeInterval(30))
+
     // A /model that chose what the session was already running changes nothing, so there is nothing
     // to adopt and nothing to say.
     var agreeing = freshState()

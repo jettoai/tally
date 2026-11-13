@@ -160,6 +160,7 @@ func catchUpSummary(_ w: TranscriptWatcher, hits: [Bool]) -> String {
         "lastPersonInputAt=\(show(w.lastPersonInputAt))",
         "lastContextTokens=\(show(w.lastContextTokens))",
         "lastModelCommandAt=\(show(w.lastModelCommandAt))",
+        "lastModelCommandArgs=\(show(w.lastModelCommandArgs))",
         "lastModelCommandEffort=\(show(w.lastModelCommandEffort))",
         "lastLimitReset=\(show(w.lastLimitReset))", "lastFlag=\(show(w.lastFlag))",
         "loginRequiredAt=\(show(w.loginRequiredAt))",

@@ -75,7 +75,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/LimitResetSignals.swift \
   TallyCLI/ManualMoveState.swift \
   TallyCLI/MessagingSocket.swift \
-  TallyCLI/ModelRequest.swift \
+  TallyCLI/ModelRequest.swift TallyCLI/ModelGapAttribution.swift \
   TallyCLI/MoveField.swift \
   TallyCLI/OpenTurn.swift \
   TallyCLI/PendingNotice.swift \

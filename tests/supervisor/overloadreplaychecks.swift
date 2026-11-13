@@ -12,7 +12,7 @@ import Foundation
 // which is the failure (c) removes. The other two (s19, s31) were still on opus when the corpus was
 // cut and are the same shape to the net, so it acts on them as well.
 
-private let overloadCorpus: [(id: String, offset: TimeInterval, last: String?)] = [
+let overloadCorpus: [(id: String, offset: TimeInterval, last: String?)] = [
     ("s01", 0, "sonnet"), ("s02", 1, "sonnet"), ("s03", 1, "opus"), ("s04", 1693, "sonnet"),
     ("s05", 1696, "sonnet"), ("s06", 1696, "sonnet"), ("s07", 2087, "opus"), ("s08", 2090, "sonnet"),
     ("s09", 2091, "opus"), ("s10", 2092, "opus"), ("s11", 2094, "sonnet"), ("s12", 2094, "sonnet"),
@@ -22,8 +22,8 @@ private let overloadCorpus: [(id: String, offset: TimeInterval, last: String?)] 
     ("s25", 2132, "sonnet"), ("s26", 11099, "sonnet"), ("s27", 11105, "sonnet"), ("s28", 12824, "opus"),
     ("s29", 12825, nil), ("s30", 12827, "opus"), ("s31", 13504, "opus"),
 ]
-private let tallyRelaunched: Set<String> = ["s03", "s07", "s09", "s10", "s28", "s30"]
-private let stillOnOpus: Set<String> = tallyRelaunched.union(["s19", "s31"])
+let tallyRelaunched: Set<String> = ["s03", "s07", "s09", "s10", "s28", "s30"]
+let stillOnOpus: Set<String> = tallyRelaunched.union(["s19", "s31"])
 
 func runOverloadReplayChecks() {
     let now = launch.addingTimeInterval(20_000)

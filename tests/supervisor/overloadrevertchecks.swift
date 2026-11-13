@@ -180,11 +180,12 @@ func runOverloadRevertChecks() {
         .appendingPathComponent("tally-overload-log-\(UUID().uuidString).log")
     func tick(_ state: inout OverloadRevertState, mode: OverloadRevertMode = .auto, hook: Bool = true,
               event: OverloadFallbackEvent? = overloadEvent(), command: Date? = nil,
-              dialog: Bool = false, at: Date = now, typed: inout [String],
+              dialog: Bool = false, at: Date = now, args: String? = "sonnet", typed: inout [String],
               result: SessionInputInjection = .done) -> String? {
         applyOverloadRevert(&state, pid: "4242", event: event, actualModel: "claude-opus-5-5",
                             primaryModel: "sonnet", providerID: "claude", driftActive: false,
-                            modelCommandAt: command, mode: mode, hookInstalled: hook,
+                            modelCommandAt: command, modelCommandArgs: args, mode: mode,
+                            hookInstalled: hook,
                             typedAlready: false, session: .idle, quiet: .quiet, turnEnded: { true },
                             keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
                             waitingOnPerson: dialog, now: at, log: log,
@@ -238,8 +239,8 @@ func runOverloadRevertChecks() {
     // scan reads the transcript, our stamp is spent, and only then does the adoption look at it.
     // The fixture is the incident sequence: our `/model`, a prompt, the reply of the model a
     // capacity fallback moved the window to, the next prompt (so the reply is a confirmation).
-    func commandRecords(at offset: TimeInterval) -> [String] {
-        [#"{"type":"user","isSidechain":false,"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>"}}"#,
+    func commandRecords(at offset: TimeInterval, args: String = "sonnet") -> [String] {
+        [#"{"type":"user","isSidechain":false,"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>\#(args)</command-args>"}}"#,
          #"{"type":"user","isSidechain":false,"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"<local-command-stdout>Set model to \#("\\u001b[1mSonnet 5.5\\u001b[22m")</local-command-stdout>"}}"#]
     }
     let fallbackReply = #"{"parentUuid":"u-own1","type":"assistant","isSidechain":false,"uuid":"a-own","timestamp":"\#(stamp(612))","message":{"model":"claude-opus-5-5"}}"#
@@ -256,12 +257,13 @@ func runOverloadRevertChecks() {
           ownReply.modelConfirmation?.model == "claude-opus-5-5")
     var owned = SessionModelState(sessionKey: "4242")
     var ownedFollow = FollowState(launchArgs: ["--model", "sonnet"])
-    if let stampOfOurs = ownModelCommandStamp(&own, commandAt: ownReply.lastModelCommandAt,
-                                              now: launch.addingTimeInterval(614)) {
-        owned.servedModelCommandAt = stampOfOurs
-    }
+    // The tick's claim: what the revert state says we typed, then the record it produced.
+    owned.gap.settleOwnCommand(typedAt: own.ownCommandSince, typedModel: own.ownCommandModel,
+                               confirmedAt: own.confirmedCommandAt,
+                               commandAt: ownReply.lastModelCommandAt, args: ownReply.lastModelCommandArgs,
+                               now: launch.addingTimeInterval(614))
     check("our own record is claimed once, before the adoption looks",
-          owned.servedModelCommandAt == launch.addingTimeInterval(610) && own.ownCommandSince == nil)
+          owned.servedModelCommandAt == launch.addingTimeInterval(610) && owned.gap.ownCommandSince == nil)
     check("our own switch is not adopted as a person's choice, whatever answered after it",
           !adoptNativeModelChoice(state: &owned, follow: &ownedFollow, watcher: ownReply,
                                   primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
@@ -278,27 +280,63 @@ func runOverloadRevertChecks() {
     let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
                                         encoding: .utf8)) ?? ""
     check("the tick claims our record before the directives adopt anything", {
-        guard let claim = supervisorSource.range(of: "ownModelCommandStamp(&overloadRevert"),
+        guard let claim = supervisorSource.range(of: "gap.settleOwnCommand("),
               let adopt = supervisorSource.range(of: "applySessionDirectives(plan:") else { return false }
         return claim.lowerBound < adopt.lowerBound
     }())
 
     // A record that lands after the stuck-confirm is still ours, within the window.
     check("stuck-confirm keeps the claim on a record that arrives late",
-          stuck.typedAt == nil && stuck.ownCommandSince == now
-              && ownModelCommandStamp(&stuck, commandAt: launch.addingTimeInterval(800),
-                                      now: launch.addingTimeInterval(801)) == launch.addingTimeInterval(800)
-              && stuck.ownCommandSince == nil)
-    var noRecord = OverloadRevertState(); noRecord.ownCommandSince = now
+          stuck.typedAt == nil && stuck.ownCommandSince == now && {
+              var ledger = ModelGapLedger()
+              ledger.observeOverloadRevert(typedAt: stuck.ownCommandSince, typedModel: stuck.ownCommandModel,
+                                           confirmedAt: nil)
+              return ledger.claimOwnCommand(commandAt: launch.addingTimeInterval(800), args: "sonnet",
+                                            now: launch.addingTimeInterval(801))
+                  == launch.addingTimeInterval(800) && ledger.ownCommandSince == nil
+          }())
+    var noRecord = ModelGapLedger()
+    noRecord.observeOverloadRevert(typedAt: now, typedModel: "sonnet", confirmedAt: nil)
     check("no record, or one older than our line: nothing claimed",
-          ownModelCommandStamp(&noRecord, commandAt: nil, now: now.addingTimeInterval(5)) == nil
-              && ownModelCommandStamp(&noRecord, commandAt: now.addingTimeInterval(-5),
-                                      now: now.addingTimeInterval(5)) == nil
+          noRecord.claimOwnCommand(commandAt: nil, args: nil, now: now.addingTimeInterval(5)) == nil
+              && noRecord.claimOwnCommand(commandAt: now.addingTimeInterval(-5), args: "sonnet",
+                                          now: now.addingTimeInterval(5)) == nil
               && noRecord.ownCommandSince == now)
     check("past the window a record is a person's, and the claim is dropped",
-          ownModelCommandStamp(&noRecord, commandAt: now.addingTimeInterval(400),
-                               now: now.addingTimeInterval(overloadRevertOwnRecordWindow + 1)) == nil
+          noRecord.claimOwnCommand(commandAt: now.addingTimeInterval(400), args: "sonnet",
+                                   now: now.addingTimeInterval(modelGapOwnRecordWindow + 1)) == nil
               && noRecord.ownCommandSince == nil)
+
+    // B-4551, third round: T=0 we type, T=90 stuck-confirm keeps the claim open, T=100 a PERSON picks
+    // another model. Time alone called that record ours, spent it, and the adoption skipped it for
+    // good (no pin). The record's argument is what separates the two.
+    let personReply = #"{"parentUuid":"u-per1","type":"assistant","isSidechain":false,"uuid":"a-per","timestamp":"\#(stamp(702))","message":{"model":"claude-opus-5-5"}}"#
+    let personRecords = watcherAfterScanning(commandRecords(at: 700, args: "opus")
+        + [userLine(701, uuid: "u-per1", text: "go on"), personReply,
+           userLine(703, uuid: "u-per2", text: "and then?")])
+    check("the fixture: a person's /model opus after our stuck line carries its own argument",
+          personRecords.lastModelCommandArgs == "opus"
+              && personRecords.modelConfirmation?.model == "claude-opus-5-5")
+    var theirs = SessionModelState(sessionKey: "4245")
+    var theirsFollow = FollowState(launchArgs: ["--model", "sonnet"])
+    theirs.gap.settleOwnCommand(typedAt: stuck.ownCommandSince, typedModel: stuck.ownCommandModel,
+                                confirmedAt: stuck.confirmedCommandAt,
+                                commandAt: personRecords.lastModelCommandAt,
+                                args: personRecords.lastModelCommandArgs,
+                                now: launch.addingTimeInterval(705))
+    check("a person's /model inside the stuck window is not claimed as ours",
+          theirs.servedModelCommandAt == nil && theirs.gap.ownCommandSince != nil)
+    check("…so the adoption pins it",
+          adoptNativeModelChoice(state: &theirs, follow: &theirsFollow, watcher: personRecords,
+                                 primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
+                                 now: launch.addingTimeInterval(705), log: testAuditLog)
+              && theirs.pin.model == "claude-opus-5-5")
+    var elsewhere = OverloadRevertState(); var elsewhereTyped: [String] = []
+    _ = tick(&elsewhere, typed: &elsewhereTyped)
+    _ = tick(&elsewhere, command: now.addingTimeInterval(30), at: now.addingTimeInterval(31),
+             args: "opus", typed: &elsewhereTyped)
+    check("a record naming another model is not the confirmation of our line",
+          elsewhere.confirmedCommandAt == nil && elsewhere.typedAt != nil)
 
     // The watcher half: a reply served by a capacity fallback is never a confirmation, so neither
     // our switch nor a person's is pinned to it whichever way the tick runs.

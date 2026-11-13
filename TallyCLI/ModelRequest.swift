@@ -163,7 +163,10 @@ struct SessionModelState {
     /// once, and the next one has to be NEWER. Not carried across the self-update exec, unlike the
     /// pin: that exec starts a new child, and the new watcher's `since` already filters out every
     /// `/model` from before it.
-    var servedModelCommandAt: Date?
+    var servedModelCommandAt: Date? { gap.servedCommandAt }
+    /// Which signals have been spent, and the attribution of the gap between what the session runs
+    /// and what it was meant to run (ModelGapAttribution.swift).
+    var gap = ModelGapLedger()
     /// Why a request is being held rather than served, for the status line's badge; nil when
     /// nothing is being held. Re-derived every tick from live state, like every other badge
     /// (PendingNotice.swift), so it disappears the moment the reason does.

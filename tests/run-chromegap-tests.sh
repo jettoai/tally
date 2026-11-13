@@ -58,7 +58,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/LimitResetSignals.swift \
   TallyCLI/ManualMoveState.swift \
   TallyCLI/MessagingSocket.swift \
-  TallyCLI/ModelRequest.swift \
+  TallyCLI/ModelRequest.swift TallyCLI/ModelGapAttribution.swift \
   TallyCLI/MoveField.swift \
   TallyCLI/OpenTurn.swift \
   TallyCLI/PendingNotice.swift \

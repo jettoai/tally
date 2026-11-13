@@ -66,13 +66,16 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
                             watcher: TranscriptWatcher, primaryModel: String?,
                             launchArgs: [String], now: Date = Date(),
                             log: URL = handoffLog) -> Bool {
-    guard let commandAt = watcher.lastModelCommandAt,
-          // ONE EVENT, ONE ADOPTION. The marker lives as long as the child, so without this the
-          // condition below stays true for every later disagreement - a real quota fallback
-          // included, which would then be adopted as the user's choice and the rescue would never
-          // fire again. The next adoption needs a NEWER `/model`, exactly as the next request needs
-          // a newer stamp.
-          commandAt > (state.servedModelCommandAt ?? .distantPast),
+    // WHOSE COMMAND IT IS is not asked here: `modelCommandCause` answers it from the ledger, the
+    // same function the tick's attribution reads (ModelGapAttribution.swift). A record is a person's
+    // only while nobody has spent it, and ours are spent by `claimOwnCommand` before the tick gets
+    // here - which is the whole of what the old claim in the supervisor loop did.
+    //
+    // ONE EVENT, ONE ADOPTION. The stamp lives as long as the child, so without it the condition
+    // stays true for every later disagreement - a real quota fallback included, which would then be
+    // adopted as the user's choice and the rescue would never fire again. The next adoption needs a
+    // NEWER `/model`, exactly as the next request needs a newer stamp.
+    guard
           // The turn that ANSWERED it: the reply to the first prompt typed after the command
           // (`modelConfirmation`, TranscriptWatcher.swift). Whatever model that reply carries is the
           // model the session now runs - reading the answer and judging it are separate questions,
@@ -91,7 +94,10 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
           // `settlePendingConfirmation`, only from a candidate the position check admitted, and both
           // are cleared by a newer `/model` and by a move to another file - so a confirmation in
           // hand always belongs to the command in hand.
-          let confirmation = watcher.modelConfirmation
+          let confirmation = watcher.modelConfirmation,
+          case let .personCommand(commandAt, settled?) = modelCommandCause(
+              commandAt: watcher.lastModelCommandAt, confirmation: confirmation.model,
+              ledger: state.gap, now: now)
     else { return false }
     // CONSUMED HERE, BEFORE ANYTHING IS JUDGED. "The event has been served" and "the service
     // changed something" are two questions, and the stamp belongs to the first: a `/model` that
@@ -99,7 +105,7 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     // fallback on that child still satisfied "a /model happened, newer than the stamp" and was
     // adopted as the user's choice - which is the very failure the stamp was added to close,
     // reached through the one path that skipped it (review of 62335b8).
-    state.servedModelCommandAt = commandAt
+    state.gap.consumeCommand(at: commandAt)
     // TWO AXES, JUDGED SEPARATELY. The picker can keep the model and move only the depth, and that
     // is a real thing to do: reading "the model still agrees" as "nothing happened" threw the parsed
     // effort away, so the child ran xhigh and the next relaunch put high back (caught in review of
@@ -123,7 +129,7 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     // and if a fallback served it the rescue sees the difference and acts - the outcome the old rule
     // destroyed by pinning the fallback instead. A third model later in the same chunk changes
     // nothing here: it is not the reply to that prompt, so it is never the confirmation.
-    let observed = confirmation.model
+    let observed = settled
     let observedAt = confirmation.at
     let movedModel = !modelsAgree(primaryModel, observed) && !modelsAgree(state.pin.model, observed)
     let chosenEffort = watcher.lastModelCommandEffort

@@ -44,7 +44,11 @@ extension UsageStore {
         let rows = LastGoodCache.rows(lastGood, homes: Self.cacheHomes)
         guard rows != Self.cacheWritten,
               let data = LastGoodCache.encode(rows: rows, savedAt: Date()) else { return }
-        UserDefaults.standard.set(data, forKey: Self.lastGoodCacheKey)
+        // Off the main thread: `set` is a synchronous XPC round trip to cfprefsd, which stalled the
+        // main thread for 2s+ under memory pressure (Sentry TALLY-9W). The serial queue keeps writes ordered.
+        Self.cacheWriteQueue.async { UserDefaults.standard.set(data, forKey: Self.lastGoodCacheKey) }
         Self.cacheWritten = rows
     }
+
+    private static let cacheWriteQueue = DispatchQueue(label: "ai.jetto.tally.lastGoodWrite", qos: .utility)
 }

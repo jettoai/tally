@@ -296,4 +296,43 @@ func runCapSelfUpdateChecks() {
           restored.primaryModel == pending.primaryModel)
     check("and does not attempt before the backoff the old build set",
           restored.nextRetry == pending.nextRetry && restored.nextRetry > capT0)
+
+    // MARK: 32c. The model rewrite rides the exec (B-4551 B8)
+
+    let rewrite = ModelGapLedger.Rewrite(reason: "safeguard", model: "claude-opus-4:1",
+                                         at: Date(timeIntervalSince1970: 1_790_000_123.25))
+    let rewriteArgv = selfUpdateArgv(binary: "/t", id: "a", label: "A", home: "/h", follow: true,
+                                     sessionPin: "claude:.claude3", modelRewrite: rewrite,
+                                     args: ["--resume", "x"])
+    let rewriteParsed = parseResuperviseArgs(Array(rewriteArgv.dropFirst(2)))
+    check("the model rewrite survives the argv round trip, reason, model and time",
+          rewriteParsed.modelRewrite == rewrite)
+    check("and does not disturb what rides beside it",
+          rewriteParsed.sessionPin == "claude:.claude3" && rewriteParsed.childArgs == ["--resume", "x"]
+              && rewriteParsed.id == "a" && rewriteParsed.home == "/h" && rewriteParsed.follow)
+    check("no rewrite writes no flag",
+          !selfUpdateArgv(binary: "/t", id: "a", label: "A", home: "/h", follow: true, args: [])
+              .contains(resuperviseModelRewriteFlag))
+    let legacyArgv = parseResuperviseArgs(["--id", "a", "--label", "A", "--home", "/h", "--follow",
+                                           "--session-pin", "claude:.claude3", "--fuse", "5,6",
+                                           "--session-model", #"{"model":"opus"}"#, "--", "--resume", "x"])
+    check("an argv from a build before the flag parses as it did, with no rewrite",
+          legacyArgv.modelRewrite == nil && legacyArgv.id == "a" && legacyArgv.follow
+              && legacyArgv.sessionPin == "claude:.claude3" && legacyArgv.recoveries.count == 2
+              && legacyArgv.sessionModel == SessionModelPin(model: "opus", effort: nil)
+              && legacyArgv.childArgs == ["--resume", "x"])
+    let rewriteFlagged = { (value: String) in
+        parseResuperviseArgs(["--id", "a", "--home", "/h", "--session-pin", "p", resuperviseModelRewriteFlag,
+                              value, "--", "x"])
+    }
+    for (name, value) in [("not JSON", "not-json"), ("an array", "[1]"), ("empty", ""),
+                          ("a missing model", #"{"at":1,"reason":"fallback"}"#),
+                          ("an empty model", #"{"at":1,"model":"","reason":"fallback"}"#),
+                          ("a missing reason", #"{"at":1,"model":"opus"}"#),
+                          ("a missing time", #"{"model":"opus","reason":"fallback"}"#),
+                          ("a time that is not a number", #"{"at":"x","model":"opus","reason":"fallback"}"#)] {
+        let parsed = rewriteFlagged(value)
+        check("a rewrite value that is \(name) is dropped whole, and the rest still parses",
+              parsed.modelRewrite == nil && parsed.sessionPin == "p" && parsed.childArgs == ["x"])
+    }
 }

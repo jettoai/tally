@@ -122,7 +122,7 @@ func execSelfUpdate(to target: String, id: String, label: String, home: String, 
                     pendingCap: PendingCapRecovery? = nil, sessionModel: SessionModelPin? = nil,
                     lastConversation: String? = nil, capResume: CapResumeState? = nil,
                     taskList: TaskListPin? = nil, restartNote: RestartNote? = nil,
-                    spendReserve: Bool = false,
+                    spendReserve: Bool = false, modelRewrite: ModelGapLedger.Rewrite? = nil,
                     args: [String], binary: String? = Bundle.main.executableURL?.path) {
     guard let binary else { return }
     warn("tally updated to \(target), restarting this session on the new build")
@@ -132,7 +132,8 @@ func execSelfUpdate(to target: String, id: String, label: String, home: String, 
                               pinOverride: pinOverride, pendingCap: pendingCap,
                               sessionModel: sessionModel, lastConversation: lastConversation,
                               capResume: capResume, taskList: taskList,
-                              restartNote: restartNote, spendReserve: spendReserve, args: args)
+                              restartNote: restartNote, spendReserve: spendReserve,
+                              modelRewrite: modelRewrite, args: args)
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
     execv(binary, &cargs)
@@ -224,7 +225,7 @@ func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: Str
                            sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                            capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
                            restartNote: RestartNote? = nil, spendReserve: Bool = false,
-                           args: [String]) {
+                           modelRewrite: ModelGapLedger.Rewrite? = nil, args: [String]) {
     guard let upgrade else { return }
     attempted = upgrade.target
     execSelfUpdate(to: upgrade.target, id: target.id, label: target.label, home: upgrade.home,
@@ -232,7 +233,7 @@ func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: Str
                    pinOverride: pinOverride, pendingCap: pendingCap, sessionModel: sessionModel,
                    lastConversation: lastConversation, capResume: capResume,
                    taskList: taskList, restartNote: restartNote, spendReserve: spendReserve,
-                   args: args,
+                   modelRewrite: modelRewrite, args: args,
                    binary: upgrade.binary)
 }
 
@@ -262,7 +263,7 @@ func selfUpdateFold(captured: String?, attempted: String?, home: String?,
 /// [--hand-opt-out] [--follow-model] [--follow-effort] [--fuse <epochs>]
 /// [--session-pin <accountID>] [--pin-override <accountID>]
 /// [--pending-cap <json>] [--session-model <json>] [--last-conversation <id>]
-/// [--cap-resume <json>] -- <args...>`: the
+/// [--cap-resume <json>] [--model-rewrite <json>] -- <args...>`: the
 /// other side of the exec.
 /// Rebuilds the account from what the previous supervisor passed rather than from the snapshot
 /// (which may be stale, or missing the account entirely at that instant) and resumes supervision,
@@ -292,5 +293,6 @@ func runResupervise(args: [String]) -> Never {
                   pinOverride: parsed.pinOverride, pendingCap: parsed.pendingCap,
                   sessionModel: parsed.sessionModel, lastConversation: parsed.lastConversation,
                   capResume: parsed.capResume, taskList: parsed.taskList,
-                  restartNote: parsed.restartNote, spendReserve: parsed.spendReserve)
+                  restartNote: parsed.restartNote, spendReserve: parsed.spendReserve,
+                  modelRewrite: parsed.modelRewrite)
 }

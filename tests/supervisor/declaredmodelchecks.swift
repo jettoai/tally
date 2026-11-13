@@ -84,6 +84,8 @@ func runDeclaredModelChecks() {
         return rescue != nil || profile != nil
     }
 
+    let supervisor = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+
     // MARK: S-B: the fallback rewrote the args, then /clear brought the declared model back
 
     var state = SessionModelState(sessionKey: "s3-sb", dir: dir)
@@ -132,6 +134,38 @@ func runDeclaredModelChecks() {
                           serving: opus, spawned: 22)
     check("control: the same child with no record of the rewrite is read as quota, and the movers act",
           unrecorded.cause == .unexplained(quotaEvidence: false) && moversPlan(unrecorded, serving: opus))
+
+    // MARK: the exec: a self-update image inherits the record (B-4551 B8)
+
+    var beforeExec = SessionModelState(sessionKey: "s3-exec", dir: dir)
+    var execArgs = ["--model", "sonnet"]
+    _ = tick(&beforeExec, args: execArgs, serving: sonnet, spawned: 0)
+    execArgs = applyRelaunch(args: execArgs, plan: plan("fallback", model: "opus"),
+                             sessionPin: beforeExec.pin, ledger: &beforeExec.gap,
+                             at: launch.addingTimeInterval(10))
+    func afterExec(carrying: Bool) -> (SessionModelState, [String]) {
+        let argv = selfUpdateArgv(binary: "/t", id: "a", label: "A", home: "/h", follow: true,
+                                  sessionModel: beforeExec.pin,
+                                  modelRewrite: carrying ? beforeExec.gap.rewrite : nil, args: execArgs)
+        let parsed = parseResuperviseArgs(Array(argv.dropFirst(2)))
+        var state = SessionModelState(sessionKey: "s3-exec2",
+                                      pin: parsed.sessionModel ?? SessionModelPin(), dir: dir)
+        state.gap = ModelGapLedger(rewrite: parsed.modelRewrite)
+        return (state, parsed.childArgs)
+    }
+    var carriedState = afterExec(carrying: true).0
+    let carriedGap = tick(&carriedState, args: afterExec(carrying: true).1, serving: opus, spawned: 12)
+    check("across the exec the rewritten child is still our own rewrite, and the movers stand down",
+          carriedGap.cause == .executionRewrite(reason: "fallback", model: "opus",
+                                                at: launch.addingTimeInterval(10))
+              && carriedGap.owner == .nobody && !moversPlan(carriedGap, serving: opus))
+    var droppedState = afterExec(carrying: false).0
+    let droppedGap = tick(&droppedState, args: afterExec(carrying: false).1, serving: opus, spawned: 12)
+    check("control: without the flag the same child is unexplained and the movers act",
+          droppedGap.cause == .unexplained(quotaEvidence: false) && moversPlan(droppedGap, serving: opus))
+    check("the loop hands the live record to the exec and seeds the new ledger from the flag",
+          supervisor.contains("modelRewrite: sessionModelState.gap.rewrite, args: launchArgs)")
+              && supervisor.contains("sessionModelState.gap = ModelGapLedger(rewrite: modelRewrite)"))
 
     // MARK: I4: what clears the record
 
@@ -187,7 +221,6 @@ func runDeclaredModelChecks() {
     // MARK: I8 and the two readings, as source
 
     let attribution = (try? String(contentsOfFile: "TallyCLI/ModelGapAttribution.swift", encoding: .utf8)) ?? ""
-    let supervisor = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     let adoption = (try? String(contentsOfFile: "TallyCLI/SessionModel.swift", encoding: .utf8)) ?? ""
     func call(_ opening: String, until closing: String) -> String {
         guard let start = supervisor.range(of: opening),

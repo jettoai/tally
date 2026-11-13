@@ -165,6 +165,9 @@ struct ModelGapLedger: Equatable {
         let at: Date
     }
 
+    /// A ledger resumed across a self-update exec starts from the rewrite the old image held.
+    init(rewrite: Rewrite? = nil) { self.rewrite = rewrite }
+
     struct Baseline: Equatable {
         let spawnedAt: Date
         let model: String?
@@ -414,4 +417,32 @@ func tickModelGap(state: inout SessionModelState, handledCapacityKeys: [String],
                            facts: ModelGapFacts(watcher: watcher, driftActive: driftActive),
                            sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
                            quotaEvidence: quotaEvidence, now: now, writeLog: writeLog, log: log)
+}
+
+/// `--model-rewrite` across a self-update exec (B-4551): the model this session's child was rewritten
+/// onto, which the ledger holds in memory only. Without it the new image reads the rewritten child as
+/// `unexplained` and the degradation movers act on a gap nobody else owns. JSON like `--session-model`
+/// (a model name is open text), epoch seconds for `at`. Optional by construction: a session with no
+/// rewrite writes no flag, and an absent flag is the empty ledger every earlier build started with.
+let resuperviseModelRewriteFlag = "--model-rewrite"
+
+func encodeModelRewrite(_ rewrite: ModelGapLedger.Rewrite) -> String? {
+    let fields: [String: Any] = ["at": rewrite.at.timeIntervalSince1970, "model": rewrite.model,
+                                 "reason": rewrite.reason]
+    guard let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]) else {
+        return nil
+    }
+    return String(data: data, encoding: .utf8)
+}
+
+/// The rewrite a previous build wrote, or nil. A key that is missing or unreadable discards the whole
+/// record rather than keeping half of it: a rewrite with no model would attribute nothing, and one
+/// with a wrong reason would be spent by the wrong relaunch.
+func decodeModelRewrite(_ raw: String) -> ModelGapLedger.Rewrite? {
+    guard let data = raw.data(using: .utf8),
+          let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let reason = object["reason"] as? String, !reason.isEmpty,
+          let model = object["model"] as? String, !model.isEmpty,
+          let epoch = object["at"] as? Double, epoch.isFinite else { return nil }
+    return ModelGapLedger.Rewrite(reason: reason, model: model, at: Date(timeIntervalSince1970: epoch))
 }

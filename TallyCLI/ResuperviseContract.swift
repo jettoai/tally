@@ -340,7 +340,7 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String,
                     sessionModel: SessionModelPin? = nil, lastConversation: String? = nil,
                     capResume: CapResumeState? = nil, taskList: TaskListPin? = nil,
                     restartNote: RestartNote? = nil, spendReserve: Bool = false,
-                    args: [String]) -> [String] {
+                    modelRewrite: ModelGapLedger.Rewrite? = nil, args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
                 follow == .both ? "--follow" : "--no-follow"]
     if follow != .both {
@@ -374,6 +374,9 @@ func selfUpdateArgv(binary: String, id: String, label: String, home: String,
     if let restartNote, let encoded = encodeRestartNote(restartNote) {
         argv += [resuperviseRestartNoteFlag, encoded]
     }
+    if let modelRewrite, let encoded = encodeModelRewrite(modelRewrite) {
+        argv += [resuperviseModelRewriteFlag, encoded]
+    }
     return argv + ["--"] + args
 }
 
@@ -396,6 +399,7 @@ struct ResuperviseArgs {
     var taskListDir: String?
     var restartNote: RestartNote?
     var spendReserve = false
+    var modelRewrite: ModelGapLedger.Rewrite?
     var handOptOut = false
     var followModel = false
     var followEffort = false
@@ -446,6 +450,7 @@ func parseResuperviseArgs(_ args: [String]) -> ResuperviseArgs {
         case resuperviseSessionModelFlag: parsed.sessionModel = decodeSessionModel(value()); index += 2
         case resuperviseCapResumeFlag: parsed.capResume = decodeCapResume(value()); index += 2
         case resuperviseRestartNoteFlag: parsed.restartNote = decodeRestartNote(value()); index += 2
+        case resuperviseModelRewriteFlag: parsed.modelRewrite = decodeModelRewrite(value()); index += 2
         // Re-validated rather than trusted: this value crossed a process boundary from a build we
         // cannot see, and it is about to name a file. Anything that is not an id is no memory, which
         // is the behaviour of every build that never wrote the flag.

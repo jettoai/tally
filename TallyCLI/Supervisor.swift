@@ -40,7 +40,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    taskList carriedTaskList: TaskListPin? = nil,
                    clearedConversation: String? = nil,
                    restartNote carriedNote: RestartNote? = nil,
-                   spendReserve: Bool = false) -> Never {
+                   spendReserve: Bool = false,
+                   modelRewrite: ModelGapLedger.Rewrite? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -187,6 +188,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var sessionModelState = SessionModelState(sessionKey: supervisorPID,
                                               servedEpoch: resumed ? 0 : nil,
                                               pin: sessionModel ?? SessionModelPin())
+    sessionModelState.gap = ModelGapLedger(rewrite: modelRewrite)   // carried over the exec (B-4551)
     /// What this session has been asked to TYPE on its own behalf (SessionInput.swift owns the
     /// rules). `resumed` carries the same meaning it does above: a self-update exec keeps the pid
     /// and is the same session, so a request written moments before it must not be seeded away.
@@ -1522,7 +1524,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       lastConversation: lastConversation.published,
                                       capResume: capResume, taskList: taskList,
                                       restartNote: restartNote, spendReserve: spendReserve,
-                                      args: launchArgs)
+                                      modelRewrite: sessionModelState.gap.rewrite, args: launchArgs)
                 return .childReplaced
             }
             maybeSpawnEventDeliverer(now: Date(), last: &lastDeliverySpawn)

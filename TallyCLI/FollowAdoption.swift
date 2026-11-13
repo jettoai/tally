@@ -303,5 +303,5 @@ func typedLaunchArgs(_ args: [String], following: FollowAxes) -> [String] {
     var flags: Set<String> = []
     if following.model { flags.insert("--model") }
     if following.effort { flags.insert("--effort") }
-    return flags.isEmpty ? args : removingFlagPairs(args, flags)
+    return removingFlagPairs(args, flags)
 }

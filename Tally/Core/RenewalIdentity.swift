@@ -69,8 +69,8 @@ enum RenewalIdentity {
                 last = who
                 let stale = profileBefore.map { verdict(expected: $0, landed: who) == .match } ?? false
                 if !stale, case .mismatch = verdict(expected: expected, landed: who) { return who }
-                let written = before.map { b in reading.modifiedAt.map { $0 > b } ?? false } ?? true
-                if written { return who }
+                guard let before else { return who }
+                if let modified = reading.modifiedAt, modified > before { return who }
             }
             if attempt < attempts - 1 { try? await Task.sleep(for: interval) }
         }

@@ -75,7 +75,6 @@ final class RenewLoginStore {
         // being resolved, and the surface that gets here without a button to disable (the expiry
         // notification's action) has nothing else standing between it and a second login.
         guard !isRenewing(accountID), !cooldown.isCoolingDown(accountID, now: Date()),
-              RenewLoginCommand.plan(providerID: providerID) != nil,
               // The config-home variable, read from the same place the PATH shims read it, so a
               // third spelling of CLAUDE_CONFIG_DIR / CODEX_HOME can never drift in.
               let envKey = IntegrationsStore.Shim(rawValue: providerID)?.envKey

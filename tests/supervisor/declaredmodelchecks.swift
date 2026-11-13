@@ -147,25 +147,16 @@ func runDeclaredModelChecks() {
           ["degraded", "cap", "switch", "self-update", "pin", "reload"].allSatisfy { kept($0) })
     check("a relaunch that restates the declaration spends it (follow, tally model)",
           !kept("follow", model: "sonnet") && !kept("model", model: "sonnet"))
+    var newer = ModelGapLedger()
+    newer.noteRelaunch(reason: "fallback", model: "opus", at: launch)
+    newer.noteRelaunch(reason: "safeguard", model: "haiku", at: launch.addingTimeInterval(9))
     check("the newer rewrite replaces the older one",
-          { () -> Bool in
-              var ledger = ModelGapLedger()
-              _ = applyRelaunch(args: [], plan: plan("fallback", model: "opus"),
-                                sessionPin: SessionModelPin(), ledger: &ledger, at: launch)
-              _ = applyRelaunch(args: [], plan: plan("safeguard", model: "haiku"),
-                                sessionPin: SessionModelPin(), ledger: &ledger,
-                                at: launch.addingTimeInterval(9))
-              return ledger.rewrite == ModelGapLedger.Rewrite(reason: "safeguard", model: "haiku",
-                                                              at: launch.addingTimeInterval(9))
-          }())
-    check("a person's /model adopted as the pin spends the record too",
-          { () -> Bool in
-              var ledger = ModelGapLedger()
-              _ = applyRelaunch(args: [], plan: plan("fallback", model: "opus"),
-                                sessionPin: SessionModelPin(), ledger: &ledger, at: launch)
-              ledger.noteDeclarationAdopted()
-              return ledger.rewrite == nil
-          }())
+          newer.rewrite == ModelGapLedger.Rewrite(reason: "safeguard", model: "haiku",
+                                                  at: launch.addingTimeInterval(9)))
+    var adopted = ModelGapLedger()
+    adopted.noteRelaunch(reason: "fallback", model: "opus", at: launch)
+    adopted.noteDeclarationAdopted()
+    check("a person's /model adopted as the pin spends the record too", adopted.rewrite == nil)
 
     // MARK: a restatement only the follow can spend is not mirrored when the follow is off
 

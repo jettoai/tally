@@ -197,14 +197,16 @@ enum CLIRunner {
                         sampleCPU()
                         guard isAnswer else { return }
                         firstByte.withLock { if $0 == nil { $0 = Date().timeIntervalSince(launched) } }
+                        // Once the final timer is armed, later chunks have nothing left to decide.
+                        guard let answerComplete, settling.withLock({ $0 }) != .final else { return }
                         let text = String(decoding: captured.value, as: UTF8.self)
-                        guard let answerComplete, answerComplete(text) else { return }
-                        let final = answerIsFinal?(text) ?? true
+                        guard answerComplete(text) else { return }
+                        let isFinal = answerIsFinal?(text) ?? true
                         // One timer when the answer first completes, one more if the rest arrives later.
                         let delay = settling.withLock { state -> TimeInterval? in
-                            guard state == .idle || (state == .lingering && final) else { return nil }
-                            state = final ? .final : .lingering
-                            return final ? answerSettle : answerLinger
+                            guard state == .idle || (state == .lingering && isFinal) else { return nil }
+                            state = isFinal ? .final : .lingering
+                            return isFinal ? answerSettle : answerLinger
                         }
                         if let delay { DispatchQueue.global().asyncAfter(deadline: .now() + delay) { end(.answered) } }
                     }

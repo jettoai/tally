@@ -45,21 +45,16 @@ extension SettingsView {
         }
     }
 
-    /// One card around the two thumbnails: the compact styles are the menu-bar strip moved onto the
-    /// desktop, so this sits right after the menu bar group. The sentence above the tiles is the
-    /// whole row; the full sentence stays in the hover.
+    /// Three tiles under the group's title, in no card: the compact styles are the menu-bar strip
+    /// moved onto the desktop, so this sits right after the menu bar group. The sentence under the
+    /// title is the whole explanation; the full sentence stays in its hover.
     private var pinnedSection: some View {
-        SettingsSection(L("Pinned window"), symbol: "pin") {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(L("Show it in full or as a compact strip like the menu bar."))
-                    .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                PinnedStylePicker(selection: $settings.pinnedStyle)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(SettingsChrome.rowInsetH)
-            .tallyTooltip(L("When the panel is pinned, show it in full or as a compact strip like the menu bar."))
+        PageSection(title: L("Pinned window"), icon: Image(systemName: "pin"),
+                    note: Text(L("Show it in full or as a compact strip like the menu bar.")),
+                    card: false) {
+            PinnedStylePicker(selection: $settings.pinnedStyle)
         }
+        .tallyTooltip(L("When the panel is pinned, show it in full or as a compact strip like the menu bar."))
     }
 
     private var panelSection: some View {

@@ -27,53 +27,53 @@ extension SettingsView {
             }
 
             // The window's way out: the status item's secondary-click menu was the only Quit.
-            Button { NSApp.terminate(nil) } label: { Text(L("Quit Tally")) }
-                .buttonStyle(.bordered)
+            PageActionButton(title: L("Quit Tally")) { NSApp.terminate(nil) }
         }
     }
 }
 
-/// The About pane's top card: a step higher than a plain card, with the build's identity on the
-/// left and its version and update check on the right. The three slots are the seams a private
-/// build fills (`overlayEditionMark`, `overlayIdentityBackdrop`, `editionFooter`).
+/// The About pane's top card: card B spanning all four columns (700 x 96), with the build's identity
+/// on the left and its version on the right. The three slots are the seams a private build fills
+/// (`overlayEditionMark`, `overlayIdentityBackdrop`, `editionFooter`); a non-empty footer makes the
+/// card taller than 96.
 struct SettingsIdentityCard<Mark: View, Backdrop: View, Footer: View>: View {
     let mark: Mark
     let backdrop: Backdrop
     let footer: Footer
-    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        let dark = scheme == .dark
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .center, spacing: 8) {
-                        TallyWordmarkView(glyphHeight: 20)
-                        mark
-                        buildTag
+        TileGrid {
+            TileCard(span: 4) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .center, spacing: 0) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .center, spacing: 8) {
+                                TallyWordmarkView(glyphHeight: 20)
+                                mark
+                                buildTag
+                            }
+                            TallyBatonView(segments: 3, carrying: 1, width: 40, thickness: 4)
+                            HStack(spacing: 6) {
+                                Text(L("by")).font(.system(size: PageType.note)).foregroundStyle(.secondary)
+                                ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
+                                    .fill(Color.secondary, style: FillStyle(eoFill: true))
+                                    .frame(width: 44, height: 10)
+                                Text(verbatim: "\u{00B7}").font(.system(size: PageType.note)).foregroundStyle(.tertiary)
+                                Link("jetto.ai", destination: URL(string: "https://jetto.ai")!)
+                                    .font(.system(size: PageType.note))
+                            }
+                        }
+                        Spacer(minLength: 16)
+                        versionColumn
                     }
-                    TallyBatonView(segments: 3, carrying: 1, width: 40, thickness: 4)
-                    HStack(spacing: 6) {
-                        Text(L("by")).font(.subheadline).foregroundStyle(.secondary)
-                        ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
-                            .fill(Color.secondary, style: FillStyle(eoFill: true))
-                            .frame(width: 44, height: 10)
-                        Text(verbatim: "\u{00B7}").font(.subheadline).foregroundStyle(.tertiary)
-                        Link("jetto.ai", destination: URL(string: "https://jetto.ai")!)
-                            .font(.subheadline)
-                    }
+                    .padding(.horizontal, PageSkeleton.rowInsetH)
+                    .padding(.vertical, 16)
+                    footer
                 }
-                Spacer(minLength: 16)
-                versionColumn
+                .frame(maxWidth: .infinity, minHeight: PageSkeleton.tileHeight)
+                .background { backdrop.clipShape(RoundedRectangle(cornerRadius: PageSkeleton.cornerRadius, style: .continuous)) }
             }
-            .padding(SettingsChrome.heroInset)
-            footer
         }
-        .background { backdrop.clipShape(shape) }
-        .background(shape.fill(dark ? Color.white.opacity(0.08) : Color.white)
-            .shadow(color: .black.opacity(dark ? 0 : 0.07), radius: 8, y: 2))
-        .overlay(shape.strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
     }
 
     /// Which of the look-alike builds is this? DEV for the Debug flavour, "Local build" for a
@@ -100,10 +100,10 @@ struct SettingsIdentityCard<Mark: View, Backdrop: View, Footer: View>: View {
     private var versionColumn: some View {
         VStack(alignment: .trailing, spacing: 6) {
             Text("v\(BuildVariant.version ?? "\u{2014}")")
-                .font(.title3.weight(.semibold).monospacedDigit())
+                .font(.system(size: 18, weight: .semibold).monospacedDigit())
             if !UpdateAvailability.shared.updaterActive, OverlayApp.noUpdateNote == nil {
                 Link("GitHub Releases", destination: URL(string: "https://github.com/jettoai/tally/releases")!)
-                    .font(.subheadline)
+                    .font(.system(size: PageType.note))
             }
         }
     }

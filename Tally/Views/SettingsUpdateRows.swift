@@ -55,18 +55,18 @@ struct SettingsUpdateRows: View {
                                 .locale(AppLocale.current))
                         },
                         icon: "clock") {
-                Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
-                    .buttonStyle(.bordered)
+                PageActionButton(title: L("Check Now")) { UpdaterController.shared.checkForUpdates() }
             }
         } else {
             // The link to GitHub Releases is on the identity card, beside the version.
-            Text(OverlayApp.noUpdateNote
-                 ?? L("This build has no update feed; download new versions from GitHub Releases."))
-                .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, SettingsChrome.rowInsetH)
-                .padding(.vertical, SettingsChrome.rowInsetV)
+            GroupRowFrame {
+                Text(OverlayApp.noUpdateNote
+                     ?? L("This build has no update feed; download new versions from GitHub Releases."))
+                    .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } accessory: { EmptyView() }
         }
     }
 

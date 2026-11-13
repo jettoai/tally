@@ -60,11 +60,13 @@ struct SettingsLaunchView: View {
                 }
             }
             if descriptors.isEmpty {
+                // Nothing to configure: one 52 high row, leading edge, not a centred paragraph.
                 SettingsCard {
-                    Text(L("Enable a provider in Accounts to configure launches."))
-                        .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(20)
+                    GroupRowFrame {
+                        Text(L("Enable a provider in Accounts to configure launches."))
+                            .font(.system(size: SettingsType.body)).foregroundStyle(.secondary)
+                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    } accessory: { EmptyView() }
                 }
             } else {
                 ForEach(descriptors, id: \.id) { descriptor in

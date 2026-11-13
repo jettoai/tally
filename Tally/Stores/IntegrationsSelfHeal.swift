@@ -190,7 +190,7 @@ extension IntegrationsStore {
         // Resolved here: the picker answer is cached in a main-actor static, and the helper path is
         // this bundle's. Both go over as plain values.
         let binary = Self.bundledCLIURL
-        let nativePicker = Self.nativePickerIsSupported
+        let nativePicker = await Self.resolveNativePickerSupport()
         // THE GATE IN FRONT OF THE READ (2026-09-27, sampled at 20-55% of the app's CPU). Every
         // claude process, the app's own usage probes included, rewrites its `.claude.json`, so
         // nearly every probe woke this and re-parsed every home's state file. The settings files

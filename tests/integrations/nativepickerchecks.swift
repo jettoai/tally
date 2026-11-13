@@ -299,6 +299,29 @@ func runNativePickerChecks(tmp: URL, skill currentSkill: String) throws {
           !IntegrationsStore.claudeSupportsMCPHooks(binary: nil)
               && !IntegrationsStore.claudeSupportsMCPHooks(
                 binary: fixtures.appendingPathComponent("absent").path))
+    // THE SEARCH WALKS A 300+ MB BINARY, so it may not run on the main thread (Sentry TALLY-B9).
+    // Launch and the self-heal both resolve the answer asynchronously before anything reads the
+    // sync getter, which is then a cache read only.
+    func src(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
+    let resolver = src("Tally/Stores/IntegrationsMCPServer.swift")
+        .components(separatedBy: "static func resolveNativePickerSupport() async -> Bool {")
+        .last?.components(separatedBy: "\n    }\n").first ?? ""
+    check("TALLY-B9 the async resolver searches inside a detached task",
+          resolver.contains("Task.detached") && resolver.contains("claudeSupportsMCPHooks(binary:"))
+    let healBody = src("Tally/Stores/IntegrationsSelfHeal.swift")
+        .components(separatedBy: "func healPromptHooksInBackground() async -> Bool {")
+        .last?.components(separatedBy: "\n    }\n").first ?? ""
+    check("TALLY-B9 the self-heal resolves the answer asynchronously, never through the sync getter",
+          healBody.contains("await Self.resolveNativePickerSupport()")
+              && !healBody.contains("Self.nativePickerIsSupported"))
+    let launchSource = src("Tally/App/AppDelegate.swift")
+    if let resolveCall = launchSource.range(of: "await IntegrationsStore.resolveNativePickerSupport()"),
+       let skillCall = launchSource.range(of: "IntegrationsStore.shared.autoUpdateSkill()") {
+        check("TALLY-B9 launch awaits the resolver before the skill sync that reads the cache",
+              resolveCall.upperBound <= skillCall.lowerBound)
+    } else {
+        check("TALLY-B9 launch awaits the resolver before the skill sync that reads the cache", false)
+    }
     // The token searched for is the token WRITTEN, which is what makes the search mean anything: a
     // gate looking for one spelling while the registration used another would be a coin toss.
     check("the token the gate looks for is the hook type the registration writes",

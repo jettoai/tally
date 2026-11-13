@@ -180,7 +180,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An agent skill installed by an older app version is silently brought up to date, so
         // the guidance ships with the app. Only files that are already installed and ours are
         // touched: never an install, never someone else's skill of the same name.
-        IntegrationsStore.shared.autoUpdateSkill()
+        // The picker-support answer is searched for off the main thread first (Sentry TALLY-B9),
+        // so the sync below only reads it from the cache.
+        Task {
+            _ = await IntegrationsStore.resolveNativePickerSupport()
+            IntegrationsStore.shared.autoUpdateSkill()
+        }
         // And the knock hooks: an install from an older app gains the Chrome-gap hook and loses a
         // moved binary's path; a machine without them stays without (IntegrationsKnockHook.swift).
         IntegrationsStore.shared.autoUpdateKnockHooks()

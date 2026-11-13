@@ -300,5 +300,20 @@ extension IntegrationsStore {
         return answer
     }
 
+    /// The same answer, searched OFF the main thread (Sentry TALLY-B9: the launch-time search of a
+    /// 300+ MB binary held the main thread for over two seconds on a cold page cache). Launch and
+    /// the self-heal both await this before anything reads `nativePickerIsSupported`, so the sync
+    /// getter above is only ever a cache read. The first writer wins, so the two can never disagree.
+    static func resolveNativePickerSupport() async -> Bool {
+        if let remembered = nativePickerSupportCache { return remembered }
+        let path = CLIRunner.resolve("claude")
+        let answer = await Task.detached(priority: .utility) {
+            claudeSupportsMCPHooks(binary: path)
+        }.value
+        let settled = nativePickerSupportCache ?? answer
+        nativePickerSupportCache = settled
+        return settled
+    }
+
     private static var nativePickerSupportCache: Bool?
 }

@@ -277,6 +277,9 @@ struct TranscriptWatcher {
     /// are possible, and comparing a candidate against only the last one lets the earlier turn
     /// through (gate review, 2026-08-07). Bounded by the reset on every new command.
     var flagsSinceCommand: [SafeguardFlag] = []
+    /// The models capacity fallbacks moved a request to since that command. A reply served by one of
+    /// them is the fallback talking, not the model the command chose (OverloadFallback.swift).
+    var capacityFallbackTargetsSinceCommand: [String] = []
     /// Whether an unresolved turn is EXPECTED right now rather than a symptom: the events at the top
     /// of a file this conversation has just moved to have parents that were never in this map.
     var anchorGraceAfterMove = false
@@ -366,6 +369,7 @@ struct TranscriptWatcher {
         guard let pending = pendingConfirmation, modelConfirmation == nil else { return }
         pendingConfirmation = nil
         if flagsSinceCommand.contains(where: { modelsAgree(pending.model, $0.to) }) { return }
+        if capacityFallbackTargetsSinceCommand.contains(where: { modelsAgree(pending.model, $0) }) { return }
         modelConfirmation = (pending.model, pending.at)
     }
 

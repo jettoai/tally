@@ -10,6 +10,29 @@ struct OverloadRevertState {
     /// The `/model` record our typed line produced, for the supervisor to mark served so the
     /// adoption of a person's `/model` (adoptNativeModelChoice) does not pin our own switch.
     var confirmedCommandAt: Date?
+    /// When our line was typed, kept past `done` and past `stuck-confirm` until its `/model` record
+    /// is claimed (`ownModelCommandStamp`). `typedAt` cannot do this job: it is cleared on a
+    /// stuck-confirm, and the record of a line that landed late would then belong to nobody.
+    var ownCommandSince: Date?
+}
+
+/// How long after typing a `/model` record is still taken for ours. Past it a record is a person's.
+let overloadRevertOwnRecordWindow: TimeInterval = 300
+
+/// The stamp of OUR `/model` once its record is on disk, for the caller to spend BEFORE the adoption
+/// of a person's choice runs. That order is the whole point: the adoption reads the first answer
+/// after the command, and when a capacity fallback served that answer it pins the fallback model,
+/// which turns the temporary state we exist to undo into a standing pin.
+func ownModelCommandStamp(_ state: inout OverloadRevertState, commandAt: Date?,
+                          now: Date = Date()) -> Date? {
+    guard let since = state.ownCommandSince else { return nil }
+    if now.timeIntervalSince(since) >= overloadRevertOwnRecordWindow {
+        state.ownCommandSince = nil
+        return nil
+    }
+    guard let commandAt, commandAt > since else { return nil }
+    state.ownCommandSince = nil
+    return commandAt
 }
 
 /// grep `overload-revert=` in the input log. Session pid, event key prefix and model only.
@@ -78,6 +101,7 @@ func applyOverloadRevert(_ state: inout OverloadRevertState, pid: String,
         state.brake.reverts = state.brake.reverts.filter { now.timeIntervalSince($0) < 3600 } + [now]
         state.typedAt = now
         state.typedKey = key
+        state.ownCommandSince = now
         appendSessionInputLine(overloadRevertLine(pid: pid, outcome: "typed", eventKey: key,
                                                   model: model, now: now), to: log)
     case .held:

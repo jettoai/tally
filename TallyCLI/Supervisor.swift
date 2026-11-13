@@ -752,6 +752,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
             observeDrift(&drift, watcher: &watcher, primary: effectivePrimary, pid: supervisorPID)
 
+            // Our own `/model` is spent BEFORE the adoption below can read it as a person's choice:
+            // a capacity fallback that answered the turn after it would otherwise be pinned.
+            if let own = ownModelCommandStamp(&overloadRevert, commandAt: watcher.lastModelCommandAt),
+               own > (sessionModelState.servedModelCommandAt ?? .distantPast) {
+                sessionModelState.servedModelCommandAt = own
+            }
+
             // Where this session runs and what it runs there: a `tally switch` or a panel pin, a
             // `tally model`, and the launch default it follows when told neither. All three
             // together because the ORDER between them is a rule, and it lives with them in

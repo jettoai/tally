@@ -355,6 +355,7 @@ extension TranscriptWatcher {
             modelConfirmation = nil
             pendingConfirmation = nil
             flagsSinceCommand.removeAll()
+            capacityFallbackTargetsSinceCommand.removeAll()
             unanchoredServed = 0
             anchorLossReported = false
         }
@@ -393,6 +394,7 @@ extension TranscriptWatcher {
         if line.has(.overloadFallback), let event = overloadFallbackEvent(inLine: line.text),
            event.at >= since {
             lastOverloadFallback = event
+            if lastModelCommandAt != nil { capacityFallbackTargetsSinceCommand.append(event.to) }
         }
         // WHAT THIS ACCOUNT HAS BEEN TOLD ABOUT ITS WEEKLY RESET, from any line that carries
         // one of Claude Code's own sentences: the command's answer (a `local_command` record)

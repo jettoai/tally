@@ -234,16 +234,89 @@ func runOverloadRevertChecks() {
               $0.contains("pid=4242 overload-revert=") && !$0.contains("/model")
           })
 
-    // The adoption of a person's `/model` must not pin OUR switch: its stamp is spent first.
-    var model = SessionModelState(sessionKey: "4242")
-    model.servedModelCommandAt = acting.confirmedCommandAt
-    var follow = FollowState(launchArgs: ["--model", "sonnet"])
-    var confirmed = watcherAfterScanning([])
-    confirmed.lastModelCommandAt = now.addingTimeInterval(3)
-    check("our own switch is not adopted as a person's choice",
-          !adoptNativeModelChoice(state: &model, follow: &follow, watcher: confirmed,
+    // OUR switch must not be pinned as a person's choice, in the order the tick really runs: the
+    // scan reads the transcript, our stamp is spent, and only then does the adoption look at it.
+    // The fixture is the incident sequence: our `/model`, a prompt, the reply of the model a
+    // capacity fallback moved the window to, the next prompt (so the reply is a confirmation).
+    func commandRecords(at offset: TimeInterval) -> [String] {
+        [#"{"type":"user","isSidechain":false,"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>"}}"#,
+         #"{"type":"user","isSidechain":false,"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"<local-command-stdout>Set model to \#("\\u001b[1mSonnet 5.5\\u001b[22m")</local-command-stdout>"}}"#]
+    }
+    let fallbackReply = #"{"parentUuid":"u-own1","type":"assistant","isSidechain":false,"uuid":"a-own","timestamp":"\#(stamp(612))","message":{"model":"claude-opus-5-5"}}"#
+    let capacityLine = overloadReal.replacingOccurrences(of: stamp(60), with: stamp(611.5))
+    let beforeCommand = commandRecords(at: 610) + [userLine(611, uuid: "u-own1", text: "go on")]
+    let afterReply = [fallbackReply, userLine(613, uuid: "u-own2", text: "and then?")]
+
+    var own = OverloadRevertState(); var ownTyped: [String] = []
+    check("typing our line starts the claim on its record",
+          tick(&own, at: launch.addingTimeInterval(605), typed: &ownTyped) == "/model sonnet"
+              && own.ownCommandSince == launch.addingTimeInterval(605))
+    let ownReply = watcherAfterScanning(beforeCommand + afterReply)
+    check("the fixture: the reply of the model we moved off is the confirmation",
+          ownReply.modelConfirmation?.model == "claude-opus-5-5")
+    var owned = SessionModelState(sessionKey: "4242")
+    var ownedFollow = FollowState(launchArgs: ["--model", "sonnet"])
+    if let stampOfOurs = ownModelCommandStamp(&own, commandAt: ownReply.lastModelCommandAt,
+                                              now: launch.addingTimeInterval(614)) {
+        owned.servedModelCommandAt = stampOfOurs
+    }
+    check("our own record is claimed once, before the adoption looks",
+          owned.servedModelCommandAt == launch.addingTimeInterval(610) && own.ownCommandSince == nil)
+    check("our own switch is not adopted as a person's choice, whatever answered after it",
+          !adoptNativeModelChoice(state: &owned, follow: &ownedFollow, watcher: ownReply,
                                   primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
-                                  now: now, log: testAuditLog))
+                                  now: now, log: testAuditLog)
+              && owned.pin.model == nil)
+    // The control, and the pre-fix order: the same transcript adopted first pins the reply's model.
+    var control = SessionModelState(sessionKey: "4243")
+    var controlFollow = FollowState(launchArgs: ["--model", "sonnet"])
+    check("control: a person's /model with that same reply is still adopted",
+          adoptNativeModelChoice(state: &control, follow: &controlFollow, watcher: ownReply,
+                                 primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
+                                 now: now, log: testAuditLog)
+              && control.pin.model == "claude-opus-5-5")
+    let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
+                                        encoding: .utf8)) ?? ""
+    check("the tick claims our record before the directives adopt anything", {
+        guard let claim = supervisorSource.range(of: "ownModelCommandStamp(&overloadRevert"),
+              let adopt = supervisorSource.range(of: "applySessionDirectives(plan:") else { return false }
+        return claim.lowerBound < adopt.lowerBound
+    }())
+
+    // A record that lands after the stuck-confirm is still ours, within the window.
+    check("stuck-confirm keeps the claim on a record that arrives late",
+          stuck.typedAt == nil && stuck.ownCommandSince == now
+              && ownModelCommandStamp(&stuck, commandAt: launch.addingTimeInterval(800),
+                                      now: launch.addingTimeInterval(801)) == launch.addingTimeInterval(800)
+              && stuck.ownCommandSince == nil)
+    var noRecord = OverloadRevertState(); noRecord.ownCommandSince = now
+    check("no record, or one older than our line: nothing claimed",
+          ownModelCommandStamp(&noRecord, commandAt: nil, now: now.addingTimeInterval(5)) == nil
+              && ownModelCommandStamp(&noRecord, commandAt: now.addingTimeInterval(-5),
+                                      now: now.addingTimeInterval(5)) == nil
+              && noRecord.ownCommandSince == now)
+    check("past the window a record is a person's, and the claim is dropped",
+          ownModelCommandStamp(&noRecord, commandAt: now.addingTimeInterval(400),
+                               now: now.addingTimeInterval(overloadRevertOwnRecordWindow + 1)) == nil
+              && noRecord.ownCommandSince == nil)
+
+    // The watcher half: a reply served by a capacity fallback is never a confirmation, so neither
+    // our switch nor a person's is pinned to it whichever way the tick runs.
+    let viaFallback = watcherAfterScanning(beforeCommand + [capacityLine] + afterReply)
+    check("a reply served by a capacity fallback confirms nothing",
+          viaFallback.lastOverloadFallback != nil && viaFallback.modelConfirmation == nil)
+    var viaState = SessionModelState(sessionKey: "4244")
+    var viaFollow = FollowState(launchArgs: ["--model", "sonnet"])
+    check("…and the adoption alone, with no stamp spent, pins nothing from it",
+          !adoptNativeModelChoice(state: &viaState, follow: &viaFollow, watcher: viaFallback,
+                                  primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
+                                  now: now, log: testAuditLog)
+              && viaState.pin.model == nil)
+    let fallbackFirst = watcherAfterScanning([capacityLine.replacingOccurrences(of: stamp(611.5),
+                                                                                with: stamp(605))]
+        + beforeCommand + afterReply)
+    check("a capacity fallback from BEFORE the command does not hold its answer back",
+          fallbackFirst.modelConfirmation?.model == "claude-opus-5-5")
     try? FileManager.default.removeItem(at: log)
     try? FileManager.default.removeItem(at: dir)
 }

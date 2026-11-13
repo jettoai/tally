@@ -1,17 +1,7 @@
 import SwiftUI
 
-/// The Integrations pane's notice strips and its row button. Split out of SettingsIntegrationsPane.swift
-/// at the repo's 500-line cap; the strips themselves are `SettingsNoticeBar` (the skeleton's `NoticeSurface`).
-
-/// The skeleton's in-row button (26 high), dimmed while disabled: a locked Dev build and a busy
-/// harness row both disable their buttons, and the skeleton's style alone does not show it.
-struct RowButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        InlineButtonStyle().makeBody(configuration: configuration).opacity(isEnabled ? 1 : 0.4)
-    }
-}
+/// The Integrations pane's notice strips. Split out of SettingsIntegrationsPane.swift at the repo's
+/// 500-line cap; the strips themselves are `SettingsNoticeBar` (the skeleton's `NoticeSurface`).
 
 extension SettingsView {
     /// What the app did without being asked, said once, with the way back beside it

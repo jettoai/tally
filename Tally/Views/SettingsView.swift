@@ -80,8 +80,8 @@ struct SettingsView: View {
         // This window answers hovers in the app's own chip too, which is what a `tallyTooltip` in
         // here needs to reach: without a host every target in this tree silently takes the system
         // fallback, and the accounts pane then showed a native yellow box in the middle of a panel
-        // that never does (owner's report, 2026-08-24). At the root and outside the ScrollView, per
-        // `tallyTooltipLayer`: a host inside the scroll would clip the callout at the pane's edge.
+        // that never does (owner's report, 2026-08-24). At the root, outside every pane's own scroll
+        // area, per `tallyTooltipLayer`: a host inside a scroll would clip the callout at the pane's edge.
         .tallyTooltipLayer()
         // Dev-only pane switch measurement (SettingsTabBench); inert on every other launch.
         .onReceive(NotificationCenter.default.publisher(for: SettingsTabBench.selectNotification)) {

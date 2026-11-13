@@ -298,7 +298,7 @@ extension SettingsView {
                         Button(L("Remove"), action: remove).foregroundStyle(.secondary)
                     }
                 }
-                .buttonStyle(RowButtonStyle())
+                .buttonStyle(InlineButtonStyle())
             }
             // Why a row is broken, or that a project folder wins over it: said on the row, because
             // it is the user's next step and a hover is not where a next step lives.

@@ -20,15 +20,8 @@ enum SettingsChrome {
     static let skeleton = PageSkeleton(windowWidth: windowWidth, windowHeight: windowHeight, sidebarWidth: sidebarWidth)
     /// The pages' rhythm, forwarded from the skeleton so the panes keep their spellings.
     static let sectionGap: CGFloat = PageSkeleton.sectionGap
-    static let headerToCard: CGFloat = PageSkeleton.sectionTitleToCard
-    static let rowInsetH: CGFloat = PageSkeleton.rowInsetH
-    static let rowInsetV: CGFloat = PageSkeleton.rowInsetV
-    static let rowMinHeight: CGFloat = PageSkeleton.rowMinHeight
-    static let heroInset: CGFloat = PageSkeleton.rowInsetH
     static let rowIconSlot: CGFloat = PageSkeleton.rowIconSlot
     static let rowIconGap: CGFloat = PageSkeleton.rowIconGap
-    static var dividerInsetIcon: CGFloat { PageSkeleton.dividerInsetIcon }
-    static var dividerInsetPlain: CGFloat { PageSkeleton.dividerInsetPlain }
     static let sidebar = adaptive(light: 0xEBEBED, dark: 0x28282A)
     static let page = adaptive(light: 0xF3F3F5, dark: 0x1C1C1E)
     /// The "Sign in again" chip: a dark red on a pale wash in light mode, a pale red on a deep one in
@@ -49,11 +42,6 @@ enum SettingsChrome {
 
 /// The Settings window's type scale (B-4474): the design spec's sizes, one step above the old ones.
 enum SettingsType {
-    static let pageTitle: CGFloat = PageType.pageTitle
-    static let pageSubtitle: CGFloat = PageType.pageSubtitle
-    static let sectionTitle: CGFloat = PageType.sectionTitle
-    static let sectionIcon: CGFloat = PageType.sectionIcon
-    static let count: CGFloat = PageType.count
     static let rowTitle: CGFloat = 14
     static let rowSubtitle: CGFloat = 12
     static let rowIcon: CGFloat = 18
@@ -63,9 +51,6 @@ enum SettingsType {
     static let noticeTitle: CGFloat = 13
     static let noticeMessage: CGFloat = 12
     static let noticeIcon: CGFloat = 14
-    static let action: CGFloat = PageType.pageButton
-    static let actionIcon: CGFloat = PageType.pageButtonIcon
-    static let sidebar: CGFloat = PageType.sidebar
 }
 
 /// The card face the panes already spell this way; the one definition is `CardSurface`.

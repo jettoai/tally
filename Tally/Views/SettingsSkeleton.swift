@@ -479,10 +479,13 @@ struct PageButtonLabel: View {
     }
 }
 
-/// A button inside a row (Remove, Apply): 26 high, radius 6, 12 points.
+/// A button inside a row (Remove, Apply): 26 high, radius 6, 12 points, dimmed while disabled.
 struct InlineButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .opacity(isEnabled ? 1 : 0.4)
             .font(.system(size: PageType.inlineButton, weight: .medium))
             .padding(.horizontal, 10)
             .frame(height: PageSkeleton.inlineControlHeight)

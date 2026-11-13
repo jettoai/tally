@@ -24,7 +24,7 @@ struct SettingsCodexHarness: View {
                             .disabled(!harness.mayWrite || harness.busy).accessibilityIdentifier("harness-remove")
                     }
                 }
-                .buttonStyle(RowButtonStyle())
+                .buttonStyle(InlineButtonStyle())
             }
             if !harness.hasInstallation || IntegrationsCapture.showNotInInstallAll {
                 SettingsSubRow(title: L("Not part of Install all. Use this row's Install button."))

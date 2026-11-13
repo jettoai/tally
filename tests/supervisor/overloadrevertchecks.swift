@@ -85,20 +85,24 @@ func runOverloadRevertChecks() {
               == .revert(model: "sonnet", eventKey: key))
 
     // MARK: - (c): the movers stay off a capacity fallback
+    // The movers read the attribution now (ModelGapAttribution.swift), so what these five asserted of
+    // `overloadFallbackExplains` is asserted of the gap the movers are handed.
+    func gapFor(_ event: OverloadFallbackEvent?, actual: String, declared: String) -> ModelGapAttribution {
+        attributeModelGap(declared: declared, source: .app, executing: declared,
+                          facts: ModelGapFacts(observed: actual, overload: event),
+                          ledger: ModelGapLedger(), quotaEvidence: { true }, now: launch)
+    }
     check("explained: server_error, serving the fallback model, primary is the original",
-          overloadFallbackExplains(event: overloadEvent(), actualModel: "claude-opus-5-5",
-                                   primaryModel: "sonnet"))
-    check("an unseen trigger explains nothing",
-          !overloadFallbackExplains(event: overloadEvent(trigger: "x"), actualModel: "claude-opus-5-5",
-                                    primaryModel: "sonnet"))
+          !degradationMoversMayAct(gapFor(overloadEvent(), actual: "claude-opus-5-5", declared: "sonnet")))
+    check("an unseen trigger is explained too: the subtype says capacity, the trigger is only recorded",
+          !degradationMoversMayAct(gapFor(overloadEvent(trigger: "x"), actual: "claude-opus-5-5",
+                                          declared: "sonnet")))
     check("a third model explains nothing",
-          !overloadFallbackExplains(event: overloadEvent(), actualModel: "claude-haiku-5",
-                                    primaryModel: "sonnet"))
+          degradationMoversMayAct(gapFor(overloadEvent(), actual: "claude-haiku-5", declared: "sonnet")))
     check("a different primary explains nothing",
-          !overloadFallbackExplains(event: overloadEvent(), actualModel: "claude-opus-5-5",
-                                    primaryModel: "fable"))
+          degradationMoversMayAct(gapFor(overloadEvent(), actual: "claude-opus-5-5", declared: "fable")))
     check("no event explains nothing",
-          !overloadFallbackExplains(event: nil, actualModel: "claude-opus-5-5", primaryModel: "sonnet"))
+          degradationMoversMayAct(gapFor(nil, actual: "claude-opus-5-5", declared: "sonnet")))
 
     let account = Snapshot.Account(
         id: "claude:A", provider: "claude", label: "A", launchHome: "/tmp/A",
@@ -122,10 +126,11 @@ func runOverloadRevertChecks() {
     let policy = LaunchPolicy(mode: "auto", model: "sonnet", fallbackModel: "opus", effort: "high",
                               fallbackEffort: "high")
     let fleet = { (Snapshot(version: 2, generatedAt: Date(), accounts: [account, sibling]), nil as String?) }
-    func rescue(overload: Bool) -> RelaunchPlan? {
+    func rescue(overload: Bool) -> RelaunchPlan? { rescue(gap: overload ? capacityGap : moversFree) }
+    func rescue(gap: ModelGapAttribution) -> RelaunchPlan? {
         var plan: RelaunchPlan?
-        applyDegradationRescue(plan: &plan, watcher: &watcher, driftActive: false,
-                               overloadActive: overload, policy: policy, account: account,
+        applyDegradationRescue(plan: &plan, watcher: &watcher, gap: gap, policy: policy,
+                               account: account,
                                providerID: "claude", primaryModel: "sonnet", quarantine: [:],
                                steering: true, fuseAllows: true, snapshot: fleet)
         return plan
@@ -134,10 +139,12 @@ func runOverloadRevertChecks() {
     check("a capacity fallback is not a reason to move: same fleet, same watcher, no plan",
           rescue(overload: true) == nil)
     func profile(overload: Bool, applied: inout Bool) -> RelaunchPlan? {
+        profile(gap: overload ? capacityGap : moversFree, applied: &applied)
+    }
+    func profile(gap: ModelGapAttribution, applied: inout Bool) -> RelaunchPlan? {
         var plan: RelaunchPlan?
-        applyFallbackProfile(plan: &plan, applied: &applied, watcher: &watcher, driftActive: false,
-                             overloadActive: overload, policy: policy, account: account,
-                             primaryModel: "sonnet")
+        applyFallbackProfile(plan: &plan, applied: &applied, watcher: &watcher, gap: gap,
+                             policy: policy, account: account, primaryModel: "sonnet")
         return plan
     }
     var applied = false
@@ -145,6 +152,78 @@ func runOverloadRevertChecks() {
           profile(overload: true, applied: &applied) == nil && !applied)
     check("pass-to-pass: the quota fallback profile still applies",
           profile(overload: false, applied: &applied)?.reason == "fallback" && applied)
+
+    // B-4551 step 2, on the real structure of the eight `overloaded` events of the last 60 days
+    // (offset, trigger, sonnet to opus, and the model of the last answer after each; nothing of the
+    // conversations). Four of them end on opus, and those are the four a Tally relaunch followed
+    // (10-21, 10-25, 10-27 twice, handoff.log `reason=fallback`): the old explanation only knew
+    // `server_error`, so the movers read them as quota.
+    let overloadedEvents: [(id: String, last: String)] = [
+        ("e1", "opus"), ("e2", "opus"), ("e3", "opus"), ("e4", "sonnet"),
+        ("e5", "sonnet"), ("e6", "sonnet"), ("e7", "sonnet"), ("e8", "opus"),
+    ]
+    var sePlans = 0, seActing = 0
+    for (n, row) in overloadedEvents.enumerated() {
+        let event = OverloadFallbackEvent(at: launch.addingTimeInterval(Double(n) * 60),
+                                          from: "claude-sonnet-5-5", to: "claude-opus-5-5",
+                                          trigger: "overloaded", uuid: row.id)
+        watcher.lastModel = "claude-\(row.last)-5-5"
+        let gap = gapFor(event, actual: watcher.lastModel!, declared: "sonnet")
+        var spent = false
+        if rescue(gap: gap) != nil { sePlans += 1 }
+        if profile(gap: gap, applied: &spent) != nil { sePlans += 1 }
+        if row.last == "opus" {
+            seActing += 1
+            check("S-E \(row.id): an overloaded capacity fallback is the capacity cause",
+                  { if case .capacity = gap.cause { return true } else { return false } }())
+        }
+    }
+    check("S-E replay: eight overloaded events, four of them still on opus, and neither mover plans",
+          overloadedEvents.count == 8 && seActing == 4 && sePlans == 0)
+    watcher.lastModel = "claude-opus-5-5"
+    // A person's `/model` the session has not answered yet is theirs to settle: the movers wait.
+    let personAt = launch.addingTimeInterval(30)
+    let pending = attributeModelGap(
+        declared: "sonnet", source: .app, executing: "sonnet",
+        facts: ModelGapFacts(observed: "claude-opus-5-5", commandAt: personAt),
+        ledger: ModelGapLedger(), quotaEvidence: { true }, now: launch.addingTimeInterval(40))
+    var pendingApplied = false
+    check("a person's /model with no answer yet: neither mover plans",
+          pending.cause == .personCommand(at: personAt, settled: nil)
+              && rescue(gap: pending) == nil
+              && profile(gap: pending, applied: &pendingApplied) == nil && !pendingApplied)
+    var typedLedger = ModelGapLedger()
+    typedLedger.observeOverloadRevert(typedAt: launch.addingTimeInterval(20), typedModel: "sonnet",
+                                      confirmedAt: nil)
+    let inFlight = attributeModelGap(
+        declared: "sonnet", source: .app, executing: "sonnet",
+        facts: ModelGapFacts(observed: "claude-opus-5-5"), ledger: typedLedger,
+        quotaEvidence: { true }, now: launch.addingTimeInterval(30))
+    check("our own /model still in flight: neither mover plans",
+          rescue(gap: inFlight) == nil && profile(gap: inFlight, applied: &pendingApplied) == nil)
+    check("control: the same opus answer with nothing else to explain it is still moved",
+          rescue(gap: moversFree)?.reason == "degraded")
+
+    // The order is part of the rule: attributed before the movers look, and handed to both.
+    let supervisorText = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    func movers(_ opening: String) -> String {
+        guard let start = supervisorText.range(of: opening),
+              let end = supervisorText.range(of: ")\n", range: start.upperBound ..< supervisorText.endIndex)
+        else { return "" }
+        return String(supervisorText[start.lowerBound ..< end.upperBound])
+    }
+    check("the tick attributes the gap before either degradation mover runs", {
+        guard let gap = supervisorText.range(of: "let gap = tickModelGap("),
+              let rescue = supervisorText.range(of: "applyDegradationRescue(plan:"),
+              let profile = supervisorText.range(of: "applyFallbackProfile(plan:") else { return false }
+        return gap.lowerBound < rescue.lowerBound && rescue.lowerBound < profile.lowerBound
+    }())
+    check("both movers are handed the attribution and nothing is read off the drift monitor for them",
+          movers("applyDegradationRescue(plan:").contains("gap: gap")
+              && movers("applyFallbackProfile(plan:").contains("gap: gap")
+              && !movers("applyDegradationRescue(plan:").contains("drift.isActive")
+              && !movers("applyFallbackProfile(plan:").contains("drift.isActive")
+              && !supervisorText.contains("overloadFallbackExplains"))
 
     // MARK: - The watcher reads the event
     let reader = watcherAfterScanning([overloadReal])

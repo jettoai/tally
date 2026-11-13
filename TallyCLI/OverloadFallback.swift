@@ -5,8 +5,8 @@ import Foundation
 // design, tries the original again on the next turn. It is not a quota problem and not a safeguard
 // one (SafeguardDrift.swift), and two things in this file follow from that.
 //
-//  1. THE DEGRADATION MOVERS MUST NOT READ IT AS QUOTA (`overloadFallbackExplains`, consumed in
-//     ModelDegradation.swift). On 2026-11-13 they did: 8 `reason=fallback` relaunches (6 of them
+//  1. THE DEGRADATION MOVERS MUST NOT READ IT AS QUOTA (the `capacity` cause of
+//     ModelGapAttribution.swift, which they read through `degradationMoversMayAct`). On 2026-11-13 they did: 8 `reason=fallback` relaunches (6 of them
 //     onto `--model opus`, after which Claude Code's own "back to the original next turn" could no
 //     longer happen) and 12 `reason=degraded` account moves, each within seconds of the event.
 //
@@ -50,15 +50,6 @@ func overloadFallbackEvent(inLine line: Substring) -> OverloadFallbackEvent? {
           let at = (object["timestamp"] as? String).flatMap(parseISO) else { return nil }
     return OverloadFallbackEvent(at: at, from: from, to: to, trigger: trigger,
                                  uuid: object["uuid"] as? String)
-}
-
-/// True when the session's current divergence from its primary model is explained by a capacity
-/// fallback rather than by quota. A trigger nobody has seen answers false, which is today's
-/// behaviour: the failure direction is "the movers act", never "they stay silent".
-func overloadFallbackExplains(event: OverloadFallbackEvent?, actualModel: String?,
-                              primaryModel: String?) -> Bool {
-    guard let event, event.trigger == overloadFallbackTrigger else { return false }
-    return modelsAgree(actualModel, event.to) && modelsAgree(primaryModel, event.from)
 }
 
 // MARK: - The switch back

@@ -299,6 +299,17 @@ func gapOwner(of cause: GapCause, handledCapacity: [String]) -> GapOwner {
     }
 }
 
+/// Whether the degradation movers (the rescue and the fallback profile) may act on this tick: only
+/// when nothing else explains the gap. They used to be handed two flags (`driftActive`, and a
+/// capacity explanation that read one trigger value) and treated every other cause as quota, which
+/// is how a person's `/model` and an `overloaded` capacity fallback got a window relaunched.
+///
+/// ONE EXCEPTION, kept from before: with no declaration at all there is nothing to attribute a gap
+/// to, and the fallback profile has always judged that case by its own fallback list.
+func degradationMoversMayAct(_ gap: ModelGapAttribution) -> Bool {
+    gap.owner == .degradationMovers || (gap.declared == nil && gap.cause == .none)
+}
+
 /// The one answer. Priority, first that holds:
 ///
 ///     command (ours or a person's) > declaration moved > [nothing to explain: none]
@@ -340,39 +351,46 @@ func attributeModelGap(declared: String?, source: DeclarationSource, executing: 
 }
 
 /// grep `model-gap=` in the handoff log. Models and a key prefix only, nothing of the conversation.
-func modelGapLine(_ attribution: ModelGapAttribution, sessionID: String?, now: Date) -> String {
+func modelGapLine(_ attribution: ModelGapAttribution, sessionID: String?, trigger: String? = nil,
+                  now: Date) -> String {
     let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
     func word(_ value: String?) -> String { value ?? "-" }
     return "\(ISO8601DateFormatter().string(from: now)) session=\(sid) "
         + "model-gap=\(attribution.cause.name) declared=\(word(attribution.declared)) "
         + "executing=\(word(attribution.executing)) observed=\(word(attribution.observed)) "
         + "evidence=\(word(attribution.cause.evidence.map { String($0.prefix(8)) })) "
-        + "owner=\(attribution.owner.rawValue)\n"
+        + "owner=\(attribution.owner.rawValue)"
+        // The capacity event's own trigger, so a value nobody has seen is on the record.
+        + (trigger.map { " trigger=\($0)" } ?? "") + "\n"
 }
 
 /// One tick of the shadow: attribute, and log a change of cause. Returns the attribution.
 @discardableResult
 func observeModelGap(ledger: inout ModelGapLedger, declared: String?, source: DeclarationSource,
                      executing: String?, facts: ModelGapFacts, sessionID: String?,
-                     quotaEvidence: () -> Bool, now: Date = Date(),
+                     quotaEvidence: () -> Bool, now: Date = Date(), writeLog: Bool = true,
                      log: URL = handoffLog) -> ModelGapAttribution {
     let attribution = attributeModelGap(declared: declared, source: source, executing: executing,
                                         facts: facts, ledger: ledger, quotaEvidence: quotaEvidence,
                                         now: now)
-    if ledger.transition(to: attribution) {
-        appendHandoffLine(modelGapLine(attribution, sessionID: sessionID, now: now), to: log)
+    if writeLog && ledger.transition(to: attribution) {
+        var trigger: String?
+        if case .capacity = attribution.cause { trigger = facts.overload?.trigger }
+        appendHandoffLine(modelGapLine(attribution, sessionID: sessionID, trigger: trigger, now: now),
+                          to: log)
     }
     return attribution
 }
 
 /// Everything the supervisor tick hands the shadow, so Supervisor.swift (at its size cap) carries one
-/// call. Claude only: the codex provider's `lastModel` has not been checked against the same rule
-/// (B6 in the design), and a wrong attribution there would be a wrong log line, nothing more.
+/// call. The attribution is computed for every provider because the degradation movers read it; the
+/// log line is written for claude only (the codex provider's `lastModel` has not been checked
+/// against the same rule, B6 in the design).
 @discardableResult
 func tickModelGap(state: inout SessionModelState, handledCapacityKeys: [String], reasserted: Bool,
                   watcher: TranscriptWatcher, driftActive: Bool, typedModel: String?,
                   policyModel: String?, projectDeclares: Bool, executing: String?,
-                  spawnedAt: Date, quotaEvidence: () -> Bool, now: Date = Date(),
+                  spawnedAt: Date, quotaEvidence: () -> Bool, writeLog: Bool, now: Date = Date(),
                   log: URL = handoffLog) -> ModelGapAttribution {
     state.gap.mirror(reasserted: reasserted, handled: handledCapacityKeys, now: now)
     let declared = state.pin.model ?? typedModel ?? policyModel
@@ -382,14 +400,5 @@ func tickModelGap(state: inout SessionModelState, handledCapacityKeys: [String],
     return observeModelGap(ledger: &state.gap, declared: declared, source: source, executing: executing,
                            facts: ModelGapFacts(watcher: watcher, driftActive: driftActive),
                            sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
-                           quotaEvidence: quotaEvidence, now: now, log: log)
-}
-
-/// Fresh snapshot, and this account's window for the declared model is nearly empty: the one
-/// reading that makes an unexplained gap look like quota. Unreadable or stale is "no evidence".
-func modelGapQuotaEvidence(accountID: String, snapshot: (Snapshot?, String?)) -> Bool {
-    guard snapshot.1 == nil,
-          let remaining = snapshot.0?.accounts.first(where: { $0.id == accountID })?.modelRemaining
-    else { return false }
-    return remaining <= 5
+                           quotaEvidence: quotaEvidence, now: now, writeLog: writeLog, log: log)
 }

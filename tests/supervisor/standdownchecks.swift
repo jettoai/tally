@@ -98,7 +98,7 @@ func runStandDownChecks() {
                                  fallbackApplied: applied)
     var fallbackPlan: RelaunchPlan?
     applyFallbackProfile(plan: &fallbackPlan, applied: &applied, watcher: &fallbackWatcher,
-                         driftActive: false, policy: policy, account: standDownAccount,
+                         gap: moversFree, policy: policy, account: standDownAccount,
                          primaryModel: "claude-fable-5")
     check("a degraded session plans the fallback profile", fallbackPlan?.reason == "fallback")
     check("and spends its one shot as it plans", applied)
@@ -109,7 +109,7 @@ func runStandDownChecks() {
     check("standing down gives the one shot back", !applied)
     var laterPlan: RelaunchPlan?
     applyFallbackProfile(plan: &laterPlan, applied: &applied, watcher: &fallbackWatcher,
-                         driftActive: false, policy: policy, account: standDownAccount,
+                         gap: moversFree, policy: policy, account: standDownAccount,
                          primaryModel: "claude-fable-5")
     check("so the next tick applies the profile instead of living without it",
           laterPlan?.reason == "fallback")

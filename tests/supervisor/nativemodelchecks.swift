@@ -1038,7 +1038,7 @@ func runNativeModelChecks() {
     // And with the pin in hand the rescue no longer sees a degradation. Asserted through the real
     // function: its first guard is what returns here, so it never reaches a snapshot read.
     var rescued = typed
-    applyDegradationRescue(plan: &plan, watcher: &rescued, driftActive: false,
+    applyDegradationRescue(plan: &plan, watcher: &rescued, gap: moversFree,
                            policy: LaunchPolicy(), account: switchAccount("A"),
                            providerID: "claude",
                            primaryModel: sessionPrimaryModel(pin: replanState.pin,

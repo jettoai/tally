@@ -764,18 +764,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                    commandAt: watcher.lastModelCommandAt,
                                                    args: watcher.lastModelCommandArgs, now: Date())
             // WHY THE SESSION MAY BE RUNNING A MODEL OTHER THAN THE ONE IT WAS MEANT TO: attributed
-            // once, logged when the cause changes (ModelGapAttribution.swift). Only the command
-            // tier is read by anything yet.
-            if provider.id == "claude" {
-                tickModelGap(state: &sessionModelState, handledCapacityKeys: overloadRevert.brake.handled,
-                             reasserted: followState.reasserted, watcher: watcher,
-                             driftActive: drift.isActive, typedModel: typedModel,
-                             policyModel: fleetPolicy.model, projectDeclares: project.model != nil,
-                             executing: launchPrimaryModel(launchArgs, providerID: provider.id),
-                             spawnedAt: launchedAt,
-                             quotaEvidence: { modelGapQuotaEvidence(accountID: account.id,
-                                                                    snapshot: loadSnapshot()) })
-            }
+            // once, here, before anything below acts on the gap, and logged when the cause changes
+            // (ModelGapAttribution.swift). The degradation movers read it; nothing else yet.
+            let gap = tickModelGap(state: &sessionModelState,
+                                   handledCapacityKeys: overloadRevert.brake.handled,
+                                   reasserted: followState.reasserted, watcher: watcher,
+                                   driftActive: drift.isActive, typedModel: typedModel,
+                                   policyModel: fleetPolicy.model, projectDeclares: project.model != nil,
+                                   executing: launchPrimaryModel(launchArgs, providerID: provider.id),
+                                   spawnedAt: launchedAt, quotaEvidence: { false },
+                                   writeLog: provider.id == "claude")
 
             // Where this session runs and what it runs there: a `tally switch` or a panel pin, a
             // `tally model`, and the launch default it follows when told neither. All three
@@ -820,20 +818,17 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // tick: move to a sibling that can still serve the model, else accept the configured
             // fallback pairing here. Both rules, and why they skip a safeguard drift, live in
             // ModelDegradation.swift.
-            // A capacity fallback (`model_fallback`) explains the divergence without any quota
-            // problem, which neither mover can cure (OverloadFallback.swift).
-            let overloadActive = overloadFallbackExplains(
-                event: watcher.lastOverloadFallback, actualModel: watcher.lastModel,
-                primaryModel: effectivePrimary)
-            applyDegradationRescue(plan: &plan, watcher: &watcher, driftActive: drift.isActive,
-                                   overloadActive: overloadActive, policy: policy,
+            // Whether anything but quota explains the gap is `gap`'s answer (a safeguard drift, a
+            // capacity fallback of any trigger, a person's or our own `/model`): the movers act only
+            // when it says nobody else owns it (ModelGapAttribution.swift).
+            applyDegradationRescue(plan: &plan, watcher: &watcher, gap: gap, policy: policy,
                                    account: account, providerID: provider.id,
                                    primaryModel: effectivePrimary, quarantine: quarantine,
                                    steering: steering, fuseAllows: fuse.allows(),
                                    reserves: reserves)
             applyFallbackProfile(plan: &plan, applied: &fallbackApplied, watcher: &watcher,
-                                 driftActive: drift.isActive, overloadActive: overloadActive,
-                                 policy: policy, account: account, primaryModel: effectivePrimary)
+                                 gap: gap, policy: policy, account: account,
+                                 primaryModel: effectivePrimary)
 
             // Safeguard-fallback restore: the API fell this session onto a fallback model and left
             // it at its own default depth, so put the declared depth back at an idle moment - on

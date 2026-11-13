@@ -36,10 +36,12 @@ func runModelGapChecks() {
               && Set(zip(corpus, causes).filter { isCapacity($0.1) }.map(\.0.id)) == stillOnOpus)
     check("replay: the other 23, including the one nothing followed, are none",
           zip(corpus, causes).filter { !stillOnOpus.contains($0.0.id) }.allSatisfy { $0.1.cause == .none })
-    check("replay: the old explanation and the new cause agree on every event",
+    check("replay: the movers may act on none of them, whichever side of the gap they stand on",
           zip(corpus, causes).allSatisfy { row, attribution in
-              overloadFallbackExplains(event: event(row), actualModel: row.last.map { "claude-\($0)-5-5" },
-                                       primaryModel: "sonnet") == isCapacity(attribution)
+              // Nothing observed or an agreeing answer leaves the movers their own gate; a capacity
+              // cause is not theirs.
+              isCapacity(attribution) ? !degradationMoversMayAct(attribution)
+                  : attribution.cause == .none && attribution.declared != nil
           })
     check("replay: the old switch back and the new owner agree on every event",
           zip(corpus, causes).allSatisfy { row, attribution in
@@ -65,8 +67,7 @@ func runModelGapChecks() {
     let overloaded = attribute(facts(corpus[2], trigger: "overloaded"))
     check("an unseen trigger is still a capacity cause",
           isCapacity(overloaded) && overloaded.owner == .overloadRevert
-              && !overloadFallbackExplains(event: event(corpus[2], trigger: "overloaded"),
-                                           actualModel: opus, primaryModel: "sonnet"))
+              && !degradationMoversMayAct(overloaded))
 
     // MARK: log: one line per change of cause
 

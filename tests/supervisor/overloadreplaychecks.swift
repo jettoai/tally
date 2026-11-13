@@ -71,8 +71,10 @@ func runOverloadReplayChecks() {
           })
     check("(c): every event is explained at the moment it happened, so neither mover fires",
           overloadCorpus.allSatisfy {
-              overloadFallbackExplains(event: event($0), actualModel: "claude-opus-5-5",
-                                       primaryModel: "sonnet")
+              !degradationMoversMayAct(attributeModelGap(
+                  declared: "sonnet", source: .app, executing: "sonnet",
+                  facts: ModelGapFacts(observed: "claude-opus-5-5", overload: event($0)),
+                  ledger: ModelGapLedger(), quotaEvidence: { false }, now: now))
           })
 
     // The safeguard classifier's events: three in the real shape (trimmed from a live transcript,

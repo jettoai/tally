@@ -123,7 +123,7 @@ func runSteeringOffChecks() {
             .appendingPathComponent("tally-steering-rescue-\(UUID().uuidString)"),
                                         since: launch.addingTimeInterval(-60), resumeID: nil)
         watcher.lastModel = "claude-haiku-4-5"
-        applyDegradationRescue(plan: &plan, watcher: &watcher, driftActive: false,
+        applyDegradationRescue(plan: &plan, watcher: &watcher, gap: moversFree,
                                policy: LaunchPolicy(), account: acct("A", model: 1),
                                providerID: "claude", primaryModel: primary, quarantine: [:],
                                steering: steering, fuseAllows: true,

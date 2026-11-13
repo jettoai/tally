@@ -44,7 +44,7 @@ func runReassertChecks() {
     // 1. The fallback rewrites the model, as it did at 21:29.
     var fallbackPlan: RelaunchPlan?
     var applied = false
-    applyFallbackProfile(plan: &fallbackPlan, applied: &applied, watcher: &watcher, driftActive: false,
+    applyFallbackProfile(plan: &fallbackPlan, applied: &applied, watcher: &watcher, gap: moversFree,
                          policy: policy, account: account, primaryModel: "sonnet")
     let onOpus = fallbackPlan.map { planLaunchArgs(sample, plan: $0) } ?? []
     check("the fallback profile puts the session on opus",

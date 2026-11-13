@@ -76,6 +76,16 @@ func deadFixturePid() -> pid_t {
 }
 
 let launch = Date(timeIntervalSince1970: 1_800_000_000)
+/// What the degradation movers are handed when nothing else owns the gap (the residual cause), and
+/// when a capacity fallback does: the two readings the movers' old `driftActive`/`overloadActive`
+/// flags stood for in the older suites.
+let moversFree = ModelGapAttribution(declared: "sonnet", declaredSource: .app, executing: "sonnet",
+                                     observed: nil, cause: .unexplained(quotaEvidence: true),
+                                     owner: .degradationMovers)
+let capacityGap = ModelGapAttribution(declared: "sonnet", declaredSource: .app, executing: "sonnet",
+                                      observed: nil,
+                                      cause: .capacity(eventKey: "fixture", at: launch),
+                                      owner: .overloadRevert)
 let iso = ISO8601DateFormatter()
 func stamp(_ offset: TimeInterval) -> String { iso.string(from: launch.addingTimeInterval(offset)) }
 

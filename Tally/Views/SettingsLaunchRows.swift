@@ -106,6 +106,7 @@ struct StagedModelEffortRow: View {
                            modelOptions: modelOptions, effortLevels: effortLevels,
                            model: $stagedModel, effort: $stagedEffort)
             if dirty {
+                SettingsDivider()
                 // The next step is the user's, so it is a line of its own, not a hover.
                 SettingsSubRow(title: L("Not applied. Running sessions keep the current model and effort until you apply."),
                                tint: TallyColor.warning) {
@@ -113,7 +114,7 @@ struct StagedModelEffortRow: View {
                         LaunchPolicyStore.shared.setLaunchPair(providerID, model: stagedModel,
                                                               effort: stagedEffort)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(InlineButtonStyle())
                 }
             }
         }

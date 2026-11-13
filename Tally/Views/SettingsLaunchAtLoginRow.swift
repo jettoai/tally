@@ -89,6 +89,7 @@ struct SettingsLaunchAtLoginRow: View {
                 // The button rides on the last line; with no line to say, it gets an empty one.
                 let shown = lines.isEmpty && offersButton ? [""] : lines
                 ForEach(Array(shown.enumerated()), id: \.offset) { index, line in
+                    SettingsDivider()
                     SettingsSubRow(title: line, tint: TallyColor.warning) {
                         if offersButton, index == shown.count - 1 {
                             // One label for both reasons on purpose: it names a DESTINATION, and the
@@ -97,6 +98,7 @@ struct SettingsLaunchAtLoginRow: View {
                             // label that changed with the state would read as a different button
                             // leading somewhere else, when it is the same place either way.
                             Button(L("Open Login Items")) { openLoginItems() }
+                                .buttonStyle(InlineButtonStyle())
                         }
                     }
                 }

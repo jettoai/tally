@@ -13,9 +13,8 @@ struct AccountLoginHealthView: View {
         let layout = compact ? AnyLayout(HStackLayout(spacing: 5))
             : AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
         layout {
-            if !health.problems(accountID).isEmpty {
-                renewalMark("Session needs sign-in", icon: "person.crop.circle.badge.exclamationmark",
-                            color: TallyColor.critical, deadline: nil)
+            if let session = health.problems(accountID).first {
+                sessionMark(session)
             }
             if showsExpiry, let deadline = health.deadline(accountID) {
                 let state = health.expiryState(accountID)
@@ -27,6 +26,25 @@ struct AccountLoginHealthView: View {
                 }
             }
         }
+    }
+
+    /// A session that got a sign-in error is a fact about THAT session, not about the account: the
+    /// account's own login can be fine (B-4530), so renewing it cannot clear this mark. The press
+    /// opens the session, the same route as the notification's "Open session" action, and the
+    /// tooltip says what to do there.
+    private func sessionMark(_ session: LoginHealthSession) -> some View {
+        let title = "Session needs sign-in"
+        let when = AppLocale.shortDateTime(session.failedAt)
+        let detail = session.directory.map { URL(fileURLWithPath: $0).lastPathComponent }
+            .map { String(format: L("The session in %1$@ got a sign-in error at %2$@. Open it and send a message, or run /login."), $0, when) }
+            ?? String(format: L("A session on this account got a sign-in error at %@. Open it and send a message, or run /login."), when)
+        return Button {
+            health.openSession(session.id)
+        } label: {
+            mark(title, icon: "person.crop.circle.badge.exclamationmark", color: TallyColor.critical)
+        }
+        .buttonStyle(.plain)
+        .tallyTooltipAroundControl(owner, detail: [L(title), detail].joined(separator: "\n"))
     }
 
     private func renewalMark(_ title: String, icon: String, color: Color, deadline: Date?) -> some View {

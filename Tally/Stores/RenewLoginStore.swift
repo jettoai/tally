@@ -30,6 +30,9 @@ final class RenewLoginStore {
     /// racing it.
     private var settleTasks: [String: Task<Void, Never>] = [:]
 
+    /// Last success per account, so a repeat press right after one is skipped (RenewalCooldown).
+    private var cooldown = RenewalCooldown()
+
     /// Whether a login is happening for this account: running, or succeeded and still settling.
     /// THE question every surface asks - the card's chip, the Settings row, both context menus and
     /// the notification's action all read this one answer rather than each assembling their own.
@@ -71,7 +74,7 @@ final class RenewLoginStore {
         // `isRenewing`, not the in-flight set: an account whose renewal just succeeded is still
         // being resolved, and the surface that gets here without a button to disable (the expiry
         // notification's action) has nothing else standing between it and a second login.
-        guard !isRenewing(accountID),
+        guard !isRenewing(accountID), !cooldown.isCoolingDown(accountID, now: Date()),
               let plan = RenewLoginCommand.plan(providerID: providerID),
               // The config-home variable, read from the same place the PATH shims read it, so a
               // third spelling of CLAUDE_CONFIG_DIR / CODEX_HOME can never drift in.
@@ -122,7 +125,10 @@ final class RenewLoginStore {
             // Entered BEFORE the in-flight flag drops, in the same synchronous step: the instant
             // that flag goes every surface re-renders and offers the sign-in again, while discovery
             // still has this account down as signed out (AccountSignIn.swift).
-            if case .renewed = outcome { beginSettling(accountID) }
+            if case .renewed = outcome {
+                cooldown.succeeded(accountID, at: Date())
+                beginSettling(accountID)
+            }
             inFlight.remove(accountID)
             switch outcome {
             case .renewed:
@@ -141,8 +147,12 @@ final class RenewLoginStore {
                 // The verdict goes out FIRST. The refresh below re-reads every account through
                 // their CLIs and takes seconds, and a user who just finished a sign-in should not
                 // wait on unrelated network calls to hear whether it worked.
-                _ = await SystemAlert.post(title: "\(named) · " + L("Login renewed"),
-                                           body: L("This account is signed in again."))
+                // A session of this account that already got its 401 keeps its own mark: say so.
+                let body = AccountSignIn.renewedBody(
+                    L("This account is signed in again."),
+                    sessionNote: L("A session that already got a sign-in error needs a message sent in it, or /login, to pick up the new sign-in."),
+                    hasSessionIncident: !LoginHealthStore.shared.problems(accountID).isEmpty)
+                _ = await SystemAlert.post(title: "\(named) · " + L("Login renewed"), body: body)
                 // The reason to renew is usually that this account stopped reading, so ask again
                 // now rather than leaving a recovered account looking broken until the next tick.
                 await UsageStore.shared.refresh(userInitiated: true)

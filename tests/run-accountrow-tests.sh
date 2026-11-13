@@ -11,7 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/accountrow/main.swift tests/accountrow/accountrowchecks.swift \
+swiftc -o "$out" tests/accountrow/main.swift tests/accountrow/accountrowchecks.swift tests/accountrow/renewcooldownchecks.swift \
   Tally/Core/AccountSignIn.swift Tally/Core/AccountIdentity.swift \
   Tally/Core/AccountListState.swift Tally/Core/ReorderGeometry.swift \
   Tally/Core/AccountReserve.swift Tally/Core/ReserveStrip.swift \

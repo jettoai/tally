@@ -37,6 +37,13 @@ enum AccountSignIn {
     static func detailKey(isDormant: Bool) -> String {
         isDormant ? "Not signed in. Click to sign in." : "Signed out. Click to sign in again."
     }
+
+    /// A renewal that landed fixes the ACCOUNT's login and nothing inside a session that already got
+    /// its 401: that session keeps its mark until it answers once more (B-4530). Say so while the
+    /// "login renewed" notice is still on screen, or the mark reads as a renewal that did not work.
+    static func renewedBody(_ body: String, sessionNote: String, hasSessionIncident: Bool) -> String {
+        hasSessionIncident ? body + " " + sessionNote : body
+    }
 }
 
 /// The accounts whose renewal reported success while discovery still had them signed out.
@@ -99,5 +106,25 @@ struct RenewalSettling: Equatable {
         guard next != accounts else { return false }
         accounts = next
         return true
+    }
+}
+
+/// When each account's renewal last SUCCEEDED, so a second "Renew login" right behind it is skipped
+/// rather than opening a second browser sign-in (B-4530: two logins 27 seconds apart). Deliberately
+/// apart from `RenewalSettling`: that one is observable state surfaces draw as "renewing", and an
+/// account that was never signed out has nothing to show, only a repeat to refuse. Failures leave no
+/// entry, so a retry after a failed login is never held back.
+struct RenewalCooldown: Equatable {
+    static let window: TimeInterval = 60
+
+    private var succeededAt: [String: Date] = [:]
+
+    func isCoolingDown(_ accountID: String, now: Date) -> Bool {
+        guard let at = succeededAt[accountID] else { return false }
+        return now.timeIntervalSince(at) < Self.window
+    }
+
+    mutating func succeeded(_ accountID: String, at: Date) {
+        succeededAt[accountID] = at
     }
 }

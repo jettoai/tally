@@ -18408,6 +18408,111 @@
         }
       }
     },
+    "The session in %1$@ got a sign-in error at %2$@. Open it and send a message, or run /login.": {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 的工作階段在 %2$@ 收到登入錯誤。開啟該工作階段，送出一則訊息或執行 /login。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 的会话在 %2$@ 收到登录错误。打开该会话，发送一条消息或运行 /login。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ のセッションが %2$@ にログインエラーを受け取りました。そのセッションを開き、メッセージを送るか /login を実行してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@의 세션이 %2$@에 로그인 오류를 받았습니다. 해당 세션을 열어 메시지를 보내거나 /login을 실행하세요."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ içindeki oturum %2$@ saatinde bir giriş hatası aldı. Oturumu açıp bir mesaj gönderin veya /login çalıştırın."
+          }
+        }
+      }
+    },
+    "A session on this account got a sign-in error at %@. Open it and send a message, or run /login.": {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此帳號有一個工作階段在 %@ 收到登入錯誤。開啟該工作階段，送出一則訊息或執行 /login。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此账号有一个会话在 %@ 收到登录错误。打开该会话，发送一条消息或运行 /login。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このアカウントのセッションが %@ にログインエラーを受け取りました。そのセッションを開き、メッセージを送るか /login を実行してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 계정의 세션이 %@에 로그인 오류를 받았습니다. 해당 세션을 열어 메시지를 보내거나 /login을 실행하세요."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu hesaptaki bir oturum %@ saatinde bir giriş hatası aldı. Oturumu açıp bir mesaj gönderin veya /login çalıştırın."
+          }
+        }
+      }
+    },
+    "A session that already got a sign-in error needs a message sent in it, or /login, to pick up the new sign-in.": {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已收到登入錯誤的工作階段，需要在該工作階段送出一則訊息或執行 /login，才會套用新的登入。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已收到登录错误的会话，需要在该会话发送一条消息或运行 /login，才会使用新的登录。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ログインエラーを受け取ったセッションは、そのセッションでメッセージを送るか /login を実行すると新しいログインが反映されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "로그인 오류를 받은 세션은 해당 세션에서 메시지를 보내거나 /login을 실행해야 새 로그인이 적용됩니다."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giriş hatası almış bir oturumda yeni girişin geçerli olması için o oturumda bir mesaj gönderin veya /login çalıştırın."
+          }
+        }
+      }
+    },
     "Login expires soon": {
       "extractionState": "manual",
       "localizations": {

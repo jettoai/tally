@@ -376,6 +376,27 @@ expect(!cardSource.isEmpty && !rowSource.isEmpty && !factsSource.isEmpty && !sto
         && !memorySource.isEmpty,
        "every file the chain runs through was found to read")
 
+// MARK: - The session mark opens its session; it does not renew the account (B-4530)
+
+// The red person mark means a SESSION got a 401. The account's own login can be fine, so a renewal
+// from that mark ran a browser sign-in that could not clear it, and people pressed it twice.
+let healthViewSource = readSource("Tally/Views/AccountLoginHealthView.swift")
+let sessionMark = functionBody(healthViewSource, from: "private func sessionMark(") ?? ""
+expect(!sessionMark.isEmpty && sessionMark.contains("health.openSession(session.id)")
+        && !sessionMark.contains("RenewLoginStore") && !sessionMark.contains("canRenew"),
+       "the session mark opens that session, and neither renews the account nor waits on canRenew")
+expect(healthViewSource.contains("sessionMark(session)")
+        && functionBody(healthViewSource, from: "private func renewalMark(")?.contains("RenewLoginStore.shared.renew(accountID: accountID)") == true,
+       "the mark is drawn through it, while the expiry marks still renew")
+expect(sessionMark.contains("session.failedAt") && sessionMark.contains("lastPathComponent")
+        && sessionMark.contains("/login"),
+       "its tooltip names the project and the time, and says to send a message or run /login")
+expect(renewSource.contains("!cooldown.isCoolingDown(accountID, now: Date())")
+        && renewSource.contains("cooldown.succeeded(accountID, at: Date())"),
+       "a success is recorded and a repeat inside the window is refused inside renew itself")
+expect(renewSource.contains("hasSessionIncident: !LoginHealthStore.shared.problems(accountID).isEmpty"),
+       "the 'login renewed' notice asks whether a session of this account still has its mark")
+
 expect(factsSource.contains("LoginStatusStore.shared.isExpired(usage.id)"),
        "the surfaces read the verdict for ITS account, not a global flag")
 expect(cardSource.contains("RenewLoginStore.shared.renew(accountID: usage.id)"),

@@ -77,6 +77,13 @@ enum CLIRunner {
     /// right behind the one that completed the answer is still captured.
     static let answerSettle: TimeInterval = 0.5
 
+    /// How long the runner keeps reading after `answerComplete` holds but `answerIsFinal` does not:
+    /// the rest of the answer may be a slow chunk away. The run still ends the moment the CLI exits
+    /// by itself, so this only costs time for a CLI that stays alive after printing.
+    static let answerLinger: TimeInterval = 2
+
+    private enum Settle { case idle, lingering, final }
+
     /// Why the runner ended a child itself; at most one per run.
     private enum EndReason { case timedOut, answered }
 
@@ -87,7 +94,8 @@ enum CLIRunner {
     /// `answerComplete`, when given, is asked about everything stdout holds after each chunk. Once it
     /// says yes the watchdog is disarmed and, after `answerSettle`, the child is ended and the run
     /// returns without waiting for the pipes: a CLI that prints its answer and then lingers (or whose
-    /// grandchildren keep the pipe open) must not hold the round up (B-3918).
+    /// grandchildren keep the pipe open) must not hold the round up (B-3918). `answerIsFinal`, when
+    /// given, says the whole answer is in: until it does, the wait is `answerLinger`, not `answerSettle`.
     ///
     /// `qualityOfService`, when given, is the child's class (`Process.qualityOfService`); nil leaves
     /// whatever the child inherits from the runner's utility queue. Do not pass `.background`: under
@@ -101,6 +109,7 @@ enum CLIRunner {
         timeout: TimeInterval = 30,
         qualityOfService: QualityOfService? = nil,
         answerComplete: (@Sendable (String) -> Bool)? = nil,
+        answerIsFinal: (@Sendable (String) -> Bool)? = nil,
         claudeInstall: ClaudeNativeInstall = .current,
         searchPath: CLISearchPath = .shared
     ) async -> Output? {
@@ -174,7 +183,7 @@ enum CLIRunner {
                 let errorData = Captured()
                 let draining = DispatchGroup()
                 let firstByte = OSAllocatedUnfairLock<TimeInterval?>(initialState: nil)
-                let settling = OSAllocatedUnfairLock(initialState: false)
+                let settling = OSAllocatedUnfairLock(initialState: Settle.idle)
                 func drain(_ pipe: Pipe, into captured: Captured, isAnswer: Bool = false) {
                     draining.enter()
                     pipe.fileHandleForReading.readabilityHandler = { handle in
@@ -188,12 +197,16 @@ enum CLIRunner {
                         sampleCPU()
                         guard isAnswer else { return }
                         firstByte.withLock { if $0 == nil { $0 = Date().timeIntervalSince(launched) } }
-                        guard let answerComplete,
-                              !settling.withLock({ $0 }),
-                              answerComplete(String(decoding: captured.value, as: UTF8.self))
-                        else { return }
-                        settling.withLock { $0 = true }
-                        DispatchQueue.global().asyncAfter(deadline: .now() + answerSettle) { end(.answered) }
+                        let text = String(decoding: captured.value, as: UTF8.self)
+                        guard let answerComplete, answerComplete(text) else { return }
+                        let final = answerIsFinal?(text) ?? true
+                        // One timer when the answer first completes, one more if the rest arrives later.
+                        let delay = settling.withLock { state -> TimeInterval? in
+                            guard state == .idle || (state == .lingering && final) else { return nil }
+                            state = final ? .final : .lingering
+                            return final ? answerSettle : answerLinger
+                        }
+                        if let delay { DispatchQueue.global().asyncAfter(deadline: .now() + delay) { end(.answered) } }
                     }
                 }
                 drain(stdout, into: outData, isAnswer: true)

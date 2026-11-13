@@ -173,7 +173,10 @@ enum ClaudeUsageCLI {
             // Not the runner's utility default: under load the read sat in the queue for most of a
             // minute while it needs about 0.6 CPU seconds (B-3918).
             qualityOfService: .userInitiated,
-            answerComplete: { windows(in: $0).main }
+            answerComplete: { windows(in: $0).main },
+            // The model week is printed after the all-models one; an account without one costs the
+            // runner's longer wait only when the CLI stays alive after printing.
+            answerIsFinal: { windows(in: $0).model }
         )
         guard let output else { return (nil, false) }
         let first = output.firstByteSeconds.map { String(Int($0 * 1000)) } ?? "none"

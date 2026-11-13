@@ -464,6 +464,13 @@ for line in ((try? String(contentsOf: pids, encoding: .utf8)) ?? "").split(separ
     if let pid = Int32(line) { kill(pid, SIGKILL) }
 }
 
+// (b3) The model week arrives 0.8 seconds after the all-models one (more than the settle) and the CLI
+// lingers: the read waits for it.
+try script("printf 'Current week (all models): 32%% used · resets Nov 10 at 11:59pm (Asia/Taipei)\\n'\nsleep 0.8\nprintf 'Current week (Fable): 0%% used · resets Nov 11 at 12am (Asia/Taipei)\\n'\nsleep 20")
+let chunked = await ClaudeUsageCLI.read(binary: stub.path, environment: [:], timeout: 10)
+expect(chunked.text?.contains("Fable") == true && !chunked.timedOut,
+       "(b3) a model week printed after the settle is still in the answer")
+
 // (c) Nothing printed before the timeout is a timeout, an exit with an error is not.
 try script("sleep 20")
 let silent = await ClaudeUsageCLI.fetchUsage(configDir: slowAccount("slow-c"), executable: stub.path,

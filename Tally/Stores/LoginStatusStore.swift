@@ -111,9 +111,26 @@ final class LoginStatusStore {
     /// address is the new answer, in the memory and in this run's probe cache alike.
     func adoptIdentity(accountID: String, email: String) {
         emails[accountID] = email
-        guard identities.remember(accountID: accountID, email: email) else { return }
+        let released = identities.release(accountID: accountID)
+        guard identities.remember(accountID: accountID, email: email) || released else { return }
         persistIdentities()
     }
+
+    /// A login landed as somebody else (B-4530): until it is settled, no round writes the address
+    /// the home now holds over the one it was meant for (`AccountIdentityMemory.unresolved`).
+    func holdIdentity(accountID: String, email: String?) {
+        guard identities.hold(accountID: accountID, email: email) else { return }
+        persistIdentities()
+    }
+
+    /// A login matched, so what the home says is the account it was meant for again.
+    func releaseIdentity(accountID: String) {
+        guard identities.release(accountID: accountID) else { return }
+        persistIdentities()
+    }
+
+    /// The address the next login for this account is held to (the unresolved one first).
+    func expectedEmail(_ accountID: String) -> String? { identities.expectedEmail(accountID) }
 
     /// The account was removed outright, so its remembered address goes with it - a recreated home
     /// takes the same id (see `AccountIdentityMemory.forget`).

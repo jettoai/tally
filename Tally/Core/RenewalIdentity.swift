@@ -51,20 +51,24 @@ enum RenewalIdentity {
     /// lands AFTER the credential (B-1702: the Keychain item and the profile fetch fell in the same
     /// second), and the file still holds the PREVIOUS login's identity until then, so a single read
     /// right after the credential appears answers for whoever was there before. Hence the retry,
-    /// and hence two ways out: an answer that already disagrees with `expected` (stale data cannot
-    /// disagree with itself), or one from a file written since `before`. Out of attempts, the last
+    /// and hence two ways out: an answer that disagrees with `expected` AND is not the identity the
+    /// home held before the login (`profileBefore`: stale data cannot disagree with itself, but it
+    /// can disagree with `expected`, which is the remembered address and may differ from the file
+    /// after a wrong login), or one from a file written since `before`. Out of attempts, the last
     /// reading stands (a same-account login that rewrote nothing looks exactly like a stale one,
-    /// and `.match` is the only answer that does not strand the user).
+    /// and `.match` is the only answer that does not strand the user). `profileBefore` nil: nothing
+    /// is known to be stale, so any disagreement stands (a caller whose expectation IS the file).
     static func landedIdentity(
-        expected: Who?, before: Date?, attempts: Int = 10, interval: Duration = .milliseconds(500),
-        read: @Sendable () -> Reading
+        expected: Who?, before: Date?, profileBefore: Who? = nil, attempts: Int = 10,
+        interval: Duration = .milliseconds(500), read: @Sendable () -> Reading
     ) async -> Who? {
         var last: Who?
         for attempt in 0 ..< max(attempts, 1) {
             let reading = read()
             if let who = reading.who, !who.isEmpty {
                 last = who
-                if case .mismatch = verdict(expected: expected, landed: who) { return who }
+                let stale = profileBefore.map { verdict(expected: $0, landed: who) == .match } ?? false
+                if !stale, case .mismatch = verdict(expected: expected, landed: who) { return who }
                 let written = before.map { b in reading.modifiedAt.map { $0 > b } ?? false } ?? true
                 if written { return who }
             }
@@ -75,11 +79,12 @@ enum RenewalIdentity {
 
     /// The whole check for one landing.
     static func confirm(
-        expected: Who?, before: Date?, attempts: Int = 10, interval: Duration = .milliseconds(500),
-        read: @Sendable () -> Reading
+        expected: Who?, before: Date?, profileBefore: Who? = nil, attempts: Int = 10,
+        interval: Duration = .milliseconds(500), read: @Sendable () -> Reading
     ) async -> Verdict {
         verdict(expected: expected,
-                landed: await landedIdentity(expected: expected, before: before, attempts: attempts,
+                landed: await landedIdentity(expected: expected, before: before,
+                                             profileBefore: profileBefore, attempts: attempts,
                                              interval: interval, read: read))
     }
 

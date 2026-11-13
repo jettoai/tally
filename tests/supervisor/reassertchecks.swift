@@ -122,9 +122,15 @@ func runReassertChecks() {
     // 8. The profile file: a write is noticed even when the value did not change.
     let policies = dir.appendingPathComponent("project-policies.json")
     let key = "/tmp/reassert-project"
-    func write(_ model: String?) {
+    // What `tally project set` stamps on the entry it writes; a counter keeps two writes within one
+    // clock tick apart. `restate: false` rewrites the file around this session's entry and leaves it as it was.
+    var written = 0.0
+    func write(_ model: String?, restate: Bool = true, otherProject: String? = nil, codexModel: String? = nil) {
+        if restate { written += 1 }
         var doc = ProjectPolicyFile()
-        doc.projects[key] = ["claude": ProjectPolicy(model: model, effort: "high")]
+        doc.projects[key] = ["claude": ProjectPolicy(model: model, effort: "high", writtenAt: written)]
+        if let codexModel { doc.projects[key]?["codex"] = ProjectPolicy(model: codexModel, writtenAt: written + 100) }
+        if let otherProject { doc.projects["/tmp/other-project"] = ["claude": ProjectPolicy(model: otherProject, writtenAt: written + 200)] }
         try! saveProjectPolicies(doc, to: policies)
     }
     func touch(_ seconds: TimeInterval) {
@@ -152,6 +158,24 @@ func runReassertChecks() {
     noteProjectReasserted(stamp: &stamp, project: &project, state: &noted, providerID: "claude", key: key,
                           url: policies)
     check("a changed value is re-read into the loop's copy", noted.reasserted && project.model == "opus")
+    noted.reasserted = false
+    // The file is one for the whole machine: a write that leaves this session's own entry alone is
+    // not the user restating this session's profile, whichever project or provider it was for.
+    write("opus", restate: false, otherProject: "opus")
+    touch(12)
+    noteProjectReasserted(stamp: &stamp, project: &project, state: &noted, providerID: "claude", key: key,
+                          url: policies)
+    check("another project's profile written is not a restatement here", !noted.reasserted)
+    write("opus", restate: false, otherProject: "opus", codexModel: "opus")
+    touch(13)
+    noteProjectReasserted(stamp: &stamp, project: &project, state: &noted, providerID: "claude", key: key,
+                          url: policies)
+    check("this project's other provider written is not a restatement here either", !noted.reasserted)
+    write("opus", otherProject: "opus", codexModel: "opus")
+    touch(14)
+    noteProjectReasserted(stamp: &stamp, project: &project, state: &noted, providerID: "claude", key: key,
+                          url: policies)
+    check("this session's own entry written again among them still is", noted.reasserted)
     noted.reasserted = false
     try! "{not json".write(to: policies, atomically: true, encoding: .utf8)
     touch(15)

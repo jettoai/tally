@@ -27,6 +27,12 @@ private func stateJSON(_ email: String, _ uuid: String) -> String {
 
 private enum Write { case now, late, never }
 
+/// The reader closure is `@Sendable`, so a plain captured counter would not compile.
+private final class ReadCount: @unchecked Sendable {
+    private(set) var value = 0
+    func bump() { value += 1 }
+}
+
 func identityChecks(expect: (Bool, String) -> Void, root: URL, storeSource: String) async {
     // MARK: command
 
@@ -192,6 +198,50 @@ func identityChecks(expect: (Bool, String) -> Void, root: URL, storeSource: Stri
         expect(ran && v == .unconfirmed, "a home that never says who landed is unconfirmed")
     }
 
+    // A retry after a WRONG login: Tally remembers account A, the home's file still names B (the
+    // account that landed last time) and has not been rewritten yet. Expected is A, so a read of B
+    // disagrees with it, but it is the file's own stale answer, not a new login.
+    do {
+        let wrongB = Who(email: "b@example.com", uuid: "uuid-B")
+        let rememberedA = Who(email: "a@example.com", uuid: nil)
+        let home = root.appendingPathComponent("retry-after-wrong").appendingPathComponent(".claude4")
+        try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let state = home.appendingPathComponent(".claude.json")
+        try? stateJSON("b@example.com", "uuid-B").write(to: state, atomically: true, encoding: .utf8)
+        let before = readState(home).modifiedAt
+        let profileBefore = readState(home).who
+        expect(profileBefore == wrongB, "the retry's home starts out holding the account that landed last time")
+        usleep(60_000)   // the late write must be strictly newer than the seed
+        Task.detached {   // the CLI's late profile write, as in the .late scenario
+            try? await Task.sleep(for: .milliseconds(800))
+            try? stateJSON("a@example.com", "uuid-A").write(to: state, atomically: true, encoding: .utf8)
+        }
+        let start = Date()
+        let v = await RenewalIdentity.confirm(expected: rememberedA, before: before, profileBefore: profileBefore,
+                                              attempts: 30, interval: .milliseconds(100)) { readState(home) }
+        let seconds = Date().timeIntervalSince(start)
+        expect(v == .match && seconds >= 0.7 && seconds < 2.5,
+               "a retry waits out the file's stale answer and judges the profile that is written later (\(String(format: "%.1f", seconds))s)")
+
+        // Nothing is ever written: out of attempts the stale answer stands, and it is a mismatch.
+        let still = await RenewalIdentity.confirm(expected: rememberedA, before: before, profileBefore: profileBefore,
+                                                  attempts: 3, interval: .milliseconds(50)) {
+            (wrongB, before)   // the same identity and the same time as before the login
+        }
+        expect(still == V.mismatch(signedIn: "b@example.com"),
+               "a profile that is never rewritten is still judged, after the wait, as the account it holds")
+
+        // A genuinely different account landing is not stale and is refused at the first read.
+        let reads = ReadCount()
+        let other = await RenewalIdentity.confirm(expected: rememberedA, before: before, profileBefore: profileBefore,
+                                                  attempts: 10, interval: .milliseconds(50)) {
+            reads.bump()
+            return (Who(email: "c@example.com", uuid: "uuid-C"), before)
+        }
+        expect(other == V.mismatch(signedIn: "c@example.com") && reads.value == 1,
+               "a third account landing over the stale one is a mismatch on the first read")
+    }
+
     // MARK: the store's order
 
     // The store's order is the rule: the landing is judged BEFORE any success effect, on both paths,
@@ -228,6 +278,21 @@ func identityChecks(expect: (Bool, String) -> Void, root: URL, storeSource: Stri
     } else {
         expect(false, "the store's handOff is readable from the suite")
     }
+    // A wrong login keeps the address the home was meant for (B-4530), so the next attempt asks for
+    // that one: held on a mismatch, released only by a match, and read back from the held address.
+    expect(functionBody(storeSource, from: "private func announceUnmatched(").map {
+        guard let held = $0.range(of: "holdIdentity("), let refreshed = $0.range(of: "refresh(userInitiated: true)")
+        else { return false }
+        return held.lowerBound < refreshed.lowerBound
+    } == true, "a mismatch holds the original address before the refresh that would read the wrong one")
+    expect((functionBody(storeSource, from: "func renew(accountID: String,")?.contains("releaseIdentity(accountID: accountID)") ?? false)
+               && (functionBody(storeSource, from: "private func handOff(")?.contains("releaseIdentity(accountID: accountID)") ?? false),
+           "a landing that matches releases the held address on both paths")
+    expect(storeSource.contains("LoginStatusStore.shared.expectedEmail(accountID)")
+               && !storeSource.contains("remembered: LoginStatusStore.shared.rememberedEmail(accountID)"),
+           "the next attempt is held to the held address, not to whatever the memory was refreshed to")
+    expect(storeSource.contains("profileBefore: profileBefore"),
+           "the landing check is told what the file said before the login, apart from who was expected")
     expect(functionBody(storeSource, from: "func keepSignedInAccount(") .map {
         $0.contains("adoptIdentity") && $0.contains("loginRenewed")
     } == true, "only the explicit keep press changes what Tally remembers about the home")

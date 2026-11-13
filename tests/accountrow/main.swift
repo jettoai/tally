@@ -1,2 +1,3 @@
 runRenewCooldownChecks()
+runIdentityHoldChecks()
 runAccountRowChecks()

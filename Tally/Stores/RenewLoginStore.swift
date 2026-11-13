@@ -85,7 +85,12 @@ final class RenewLoginStore {
         // only: Codex keeps its identity in a file Tally never opens.
         let isClaude = providerID == ClaudeAccounts.providerID
         let expected = isClaude ? Self.expectedIdentity(accountID: accountID, home: home) : nil
-        let stateBefore = isClaude ? Self.claudeReading(home: home).modifiedAt : nil
+        let readingBefore = isClaude ? Self.claudeReading(home: home) : nil
+        let stateBefore = readingBefore?.modifiedAt
+        // What the file says now, apart from who the home is MEANT to be: after a wrong login the
+        // two differ, and the landing check has to tell a file that has not been rewritten yet from
+        // one that was.
+        let profileBefore = readingBefore?.who
         guard let plan = RenewLoginCommand.plan(providerID: providerID,
                                                 loginHint: expected?.email) else { return }
         // The signed-in address names the account; the nickname ("Claude 5") only does to the user
@@ -125,7 +130,8 @@ final class RenewLoginStore {
                 // account - otherwise a sign-in finished in that window leaves the "Login expired"
                 // chip up for the rest of the probe interval.
                 handOff(accountID, providerID: providerID, home: home, named: named,
-                        expected: expected, stateBefore: stateBefore)
+                        expected: expected, stateBefore: stateBefore,
+                        profileBefore: profileBefore)
                 inFlight.remove(accountID)
                 return
             }
@@ -137,9 +143,11 @@ final class RenewLoginStore {
             // marks and no onboarding note - only the notice that says what happened.
             var landing = RenewalIdentity.Verdict.match
             if case .renewed = outcome, isClaude {
-                landing = await RenewalIdentity.confirm(expected: expected, before: stateBefore) {
+                landing = await RenewalIdentity.confirm(expected: expected, before: stateBefore,
+                                                        profileBefore: profileBefore) {
                     Self.claudeReading(home: home)
                 }
+                if landing == .match { LoginStatusStore.shared.releaseIdentity(accountID: accountID) }
             }
             // Entered BEFORE the in-flight flag drops, in the same synchronous step: the instant
             // that flag goes every surface re-renders and offers the sign-in again, while discovery
@@ -190,7 +198,8 @@ final class RenewLoginStore {
                 // actually hit: the first attempt failed, they finished the login in the Terminal
                 // window (or retried), and the chip has to come down on its own.
                 handOff(accountID, providerID: providerID, home: home, named: named,
-                        expected: expected, stateBefore: stateBefore)
+                        expected: expected, stateBefore: stateBefore,
+                        profileBefore: profileBefore)
                 _ = await SystemAlert.post(
                     title: "\(named) · " + L("Login not renewed"),
                     body: Self.reason(failure) + " " + (opened
@@ -275,7 +284,8 @@ final class RenewLoginStore {
     /// retires the marks, a mismatch says so and stops, and a home that would not say who is in it
     /// is reported as unconfirmed without retiring anything.
     private func handOff(_ accountID: String, providerID: String, home: String, named: String,
-                         expected: RenewalIdentity.Who?, stateBefore: Date?) {
+                         expected: RenewalIdentity.Who?, stateBefore: Date?,
+                         profileBefore: RenewalIdentity.Who?) {
         LoginStatusStore.shared.loginHandedOff(accountID)
         handoffPolls[accountID]?.cancel()
         let before = Self.credentialStamp(providerID: providerID, home: home)
@@ -293,11 +303,13 @@ final class RenewLoginStore {
                     LoginStatusStore.shared.loginHandedOff(accountID)
                     if providerID == ClaudeAccounts.providerID {
                         let verdict = await RenewalIdentity.confirm(expected: expected,
-                                                                    before: stateBefore) {
+                                                                    before: stateBefore,
+                                                                    profileBefore: profileBefore) {
                             Self.claudeReading(home: home)
                         }
                         guard !Task.isCancelled else { return }
                         if verdict == .match {
+                            LoginStatusStore.shared.releaseIdentity(accountID: accountID)
                             _ = LoginHealthStore.shared.retireSessions(accountID, at: Date())
                         } else {
                             await announceUnmatched(verdict, accountID: accountID, named: named,
@@ -329,6 +341,9 @@ final class RenewLoginStore {
         case .match:
             return
         case .mismatch(let signedIn):
+            // The refresh below (and every poll after it) reads the wrong account out of this home;
+            // the memory must keep who it was meant for so the next attempt asks for that one.
+            LoginStatusStore.shared.holdIdentity(accountID: accountID, email: expected?.email)
             _ = await SystemAlert.post(
                 title: "\(named) · " + L("Wrong account"),
                 body: WrongAccountNotice.body(signedIn: signedIn, expected: expected?.email),
@@ -360,7 +375,7 @@ final class RenewLoginStore {
     private static func expectedIdentity(accountID: String, home: String) -> RenewalIdentity.Who? {
         let profile = ClaudeAccounts.profile(configDir: home)
         return RenewalIdentity.expectedIdentity(
-            remembered: LoginStatusStore.shared.rememberedEmail(accountID),
+            remembered: LoginStatusStore.shared.expectedEmail(accountID),
             profile: RenewalIdentity.Who(email: profile.email, uuid: profile.accountUUID))
     }
 

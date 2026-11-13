@@ -277,16 +277,22 @@ struct ProjectPolicyStamp {
 
 /// The tick's half of the restatement: when the file changed, re-read this project's model and
 /// effort into the loop's copy (the account it pins keeps the reading the supervisor started with,
-/// like `foldEffectiveFollow`) and mark the follow state reasserted. A file that exists but does not
-/// parse is left alone: failing open there would read as "the profile was cleared".
+/// like `foldEffectiveFollow`) and mark the follow state reasserted, but only when THIS session's
+/// entry (its project and provider) was written: the file is shared by every project and provider on
+/// the machine, so a change elsewhere in it says nothing about this session. A write counts when the
+/// entry's `writtenAt` moved (a same-value rewrite included) or its model or effort differs (a write
+/// by a build that predates `writtenAt`). A file that exists but does not parse is left alone:
+/// failing open there would read as "the profile was cleared".
 /// `key` is the project key resolved once at startup, so no tick runs the git probe behind it.
 func noteProjectReasserted(stamp: inout ProjectPolicyStamp, project: inout ProjectPolicy,
                            state: inout FollowState, providerID: String, key: String,
                            url: URL = projectPoliciesURL) {
     guard stamp.written(url: url), let file = try? loadProjectPoliciesForWrite(url) else { return }
     let fresh = file.policy(providerID, for: key)
-    (project.model, project.effort) = (fresh.model, fresh.effort)
-    state.reasserted = true
+    let restated = fresh.writtenAt != project.writtenAt
+        || fresh.model != project.model || fresh.effort != project.effort
+    (project.model, project.effort, project.writtenAt) = (fresh.model, fresh.effort, fresh.writtenAt)
+    if restated { state.reasserted = true }
 }
 
 /// The launch args worth reopening a session with: the axes that FOLLOW the profile are dropped,

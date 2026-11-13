@@ -108,12 +108,41 @@ enum AccountIdentity {
 /// The remembered half, kept pure so the rules below can be tested without a defaults store.
 struct AccountIdentityMemory: Codable, Equatable {
     private var emails: [String: String] = [:]
+    /// Accounts whose last login landed as somebody else (B-4530): the address each was MEANT to
+    /// hold, until a login confirms it or the person keeps the other one. While an account is here
+    /// the memory is not written for it, because what the home says is the wrong account and a poll
+    /// would record that as the account's identity, so the next "Sign in again" would be asked for
+    /// the wrong address and held to it.
+    private var unresolved: [String: String] = [:]
 
     init(emails: [String: String] = [:]) {
         self.emails = emails
     }
 
+    /// Decoded by hand so a memory stored before `unresolved` existed still loads.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        emails = try container.decode([String: String].self, forKey: .emails)
+        unresolved = try container.decodeIfPresent([String: String].self, forKey: .unresolved) ?? [:]
+    }
+
     func email(_ accountID: String) -> String? { emails[accountID] }
+
+    /// The address a login for this account is to be held to: the unresolved one when a wrong login
+    /// left one, otherwise what is remembered.
+    func expectedEmail(_ accountID: String) -> String? { unresolved[accountID] ?? emails[accountID] }
+
+    /// A login landed as somebody else: keep `email` as who this account is until that is settled.
+    @discardableResult
+    mutating func hold(accountID: String, email: String?) -> Bool {
+        guard let email, !email.isEmpty, unresolved[accountID] != email else { return false }
+        unresolved[accountID] = email
+        return true
+    }
+
+    /// The question is settled (a login matched, or the other account was kept).
+    @discardableResult
+    mutating func release(accountID: String) -> Bool { unresolved.removeValue(forKey: accountID) != nil }
 
     /// Write down what a round learned. A round that could not name the account knows LESS than the
     /// previous one did, so nil (and the empty string, which is the same non-answer wearing a
@@ -124,7 +153,16 @@ struct AccountIdentityMemory: Codable, Equatable {
     /// common round where every account said the same thing it said last time.
     @discardableResult
     mutating func remember(accountID: String, email: String?) -> Bool {
-        guard let email, !email.isEmpty, emails[accountID] != email else { return false }
+        guard let email, !email.isEmpty else { return false }
+        // A reading that names the held address means the home is back to the account it was meant
+        // for, which settles the question on its own; any other answer is the wrong login's.
+        var released = false
+        if let held = unresolved[accountID] {
+            guard held.caseInsensitiveCompare(email) == .orderedSame else { return false }
+            unresolved[accountID] = nil
+            released = true
+        }
+        guard emails[accountID] != email else { return released }
         emails[accountID] = email
         return true
     }
@@ -134,7 +172,8 @@ struct AccountIdentityMemory: Codable, Equatable {
     /// account's address on the new one's row.
     @discardableResult
     mutating func forget(accountID: String) -> Bool {
-        emails.removeValue(forKey: accountID) != nil
+        let held = unresolved.removeValue(forKey: accountID) != nil
+        return emails.removeValue(forKey: accountID) != nil || held
     }
 }
 

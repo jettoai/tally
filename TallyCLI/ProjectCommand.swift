@@ -128,6 +128,7 @@ private func runProjectSet(args: [String]) -> Int32 {
         }
     }
     // A bare `--default` writes no empty provider entry, only the default.
+    if !policy.isEmpty { policy.writtenAt = Date().timeIntervalSince1970 }
     if !policy.isEmpty { file.projects[key, default: [:]][providerID] = policy }
     if makeDefault { file.defaults[key] = providerID }
     guard writeProjectPolicies(file) else { return 1 }

@@ -34,6 +34,11 @@ struct ProjectPolicy: Codable, Equatable {
     /// Prefer the account set for Claude in Chrome (`chromeAccountSetting`) when a NEW launch here
     /// takes the headroom pick. Claude only. nil is no opinion; false is an explicit off.
     var chrome: Bool?
+    /// When `tally project set` last wrote THIS entry (seconds since 1970), even to the values it
+    /// already held. The file is one for the whole machine, so its modification time moves for any
+    /// project; this is how a running session tells that its own entry was restated (#623). Not a
+    /// setting: it does not make an entry non-empty.
+    var writtenAt: Double?
 
     var isEmpty: Bool { model == nil && effort == nil && accountID == nil && chrome == nil }
 }

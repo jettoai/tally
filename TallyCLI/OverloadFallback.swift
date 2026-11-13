@@ -6,9 +6,10 @@ import Foundation
 // one (SafeguardDrift.swift), and two things in this file follow from that.
 //
 //  1. THE DEGRADATION MOVERS MUST NOT READ IT AS QUOTA (the `capacity` cause of
-//     ModelGapAttribution.swift, which they read through `degradationMoversMayAct`). On 2026-11-13 they did: 8 `reason=fallback` relaunches (6 of them
-//     onto `--model opus`, after which Claude Code's own "back to the original next turn" could no
-//     longer happen) and 12 `reason=degraded` account moves, each within seconds of the event.
+//     ModelGapAttribution.swift, which they read through `degradationMoversMayAct`). On 2026-11-13
+//     they did: 8 `reason=fallback` relaunches (6 of them onto `--model opus`, after which Claude
+//     Code's own "back to the original next turn" could no longer happen) and 12 `reason=degraded`
+//     account moves, each within seconds of the event.
 //
 //  2. A SAFETY NET for a window that stays on the fallback model anyway: once it is quiet and its
 //     newest answer still came from the fallback model, type `/model <declared model>` once per

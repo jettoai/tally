@@ -126,21 +126,17 @@ func runOverloadRevertChecks() {
     let policy = LaunchPolicy(mode: "auto", model: "sonnet", fallbackModel: "opus", effort: "high",
                               fallbackEffort: "high")
     let fleet = { (Snapshot(version: 2, generatedAt: Date(), accounts: [account, sibling]), nil as String?) }
-    func rescue(overload: Bool) -> RelaunchPlan? { rescue(gap: overload ? capacityGap : moversFree) }
     func rescue(gap: ModelGapAttribution) -> RelaunchPlan? {
         var plan: RelaunchPlan?
         applyDegradationRescue(plan: &plan, watcher: &watcher, gap: gap, policy: policy,
-                               account: account,
-                               providerID: "claude", primaryModel: "sonnet", quarantine: [:],
-                               steering: true, fuseAllows: true, snapshot: fleet)
+                               account: account, providerID: "claude", primaryModel: "sonnet",
+                               quarantine: [:], steering: true, fuseAllows: true, snapshot: fleet)
         return plan
     }
-    check("pass-to-pass: a dry account with a roomy sibling is still moved", rescue(overload: false)?.reason == "degraded")
+    check("pass-to-pass: a dry account with a roomy sibling is still moved",
+          rescue(gap: moversFree)?.reason == "degraded")
     check("a capacity fallback is not a reason to move: same fleet, same watcher, no plan",
-          rescue(overload: true) == nil)
-    func profile(overload: Bool, applied: inout Bool) -> RelaunchPlan? {
-        profile(gap: overload ? capacityGap : moversFree, applied: &applied)
-    }
+          rescue(gap: capacityGap) == nil)
     func profile(gap: ModelGapAttribution, applied: inout Bool) -> RelaunchPlan? {
         var plan: RelaunchPlan?
         applyFallbackProfile(plan: &plan, applied: &applied, watcher: &watcher, gap: gap,
@@ -149,9 +145,9 @@ func runOverloadRevertChecks() {
     }
     var applied = false
     check("a capacity fallback does not freeze the session on the fallback model",
-          profile(overload: true, applied: &applied) == nil && !applied)
+          profile(gap: capacityGap, applied: &applied) == nil && !applied)
     check("pass-to-pass: the quota fallback profile still applies",
-          profile(overload: false, applied: &applied)?.reason == "fallback" && applied)
+          profile(gap: moversFree, applied: &applied)?.reason == "fallback" && applied)
 
     // B-4551 step 2, on the real structure of the eight `overloaded` events of the last 60 days
     // (offset, trigger, sonnet to opus, and the model of the last answer after each; nothing of the

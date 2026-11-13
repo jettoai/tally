@@ -92,7 +92,7 @@ swiftc -O -I rust/include -L "$lib" -D TALLY_RUST_REQUIRED -o "$out" \
   TallyCLI/ReloadRequest.swift \
   TallyCLI/RequestTranscript.swift \
   TallyCLI/ResumePrompt.swift \
-  TallyCLI/SafeguardDrift.swift \
+  TallyCLI/SafeguardDrift.swift TallyCLI/OverloadFallback.swift \
   TallyCLI/SessionAddressing.swift \
   TallyCLI/SessionAddressLookup.swift \
   TallyCLI/SessionClear.swift \

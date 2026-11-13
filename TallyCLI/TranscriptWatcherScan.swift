@@ -256,6 +256,10 @@ extension TranscriptWatcher {
                 let model = String(raw)
                 lastModel = model
                 lastMainChainEventAt = ts
+                // The original model answering again closes a capacity fallback.
+                if let fallback = lastOverloadFallback, modelsAgree(model, fallback.from) {
+                    lastOverloadFallback = nil
+                }
                 // The answer to the newest `/model`: this request was served, so the only
                 // question left is whether the turn it belongs to began after the command
                 // (`modelConfirmation` states the whole rule). A root that will not resolve is
@@ -384,6 +388,11 @@ extension TranscriptWatcher {
             // command performs, and by the handful of refusals a session can produce between
             // two turns.
             if lastModelCommandAt != nil { flagsSinceCommand.append(flag) }
+        }
+        // A capacity fallback (OverloadFallback.swift), guarded like the safeguard one above.
+        if line.has(.overloadFallback), let event = overloadFallbackEvent(inLine: line.text),
+           event.at >= since {
+            lastOverloadFallback = event
         }
         // WHAT THIS ACCOUNT HAS BEEN TOLD ABOUT ITS WEEKLY RESET, from any line that carries
         // one of Claude Code's own sentences: the command's answer (a `local_command` record)

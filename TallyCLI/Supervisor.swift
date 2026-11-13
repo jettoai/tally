@@ -230,6 +230,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// spawn below and holds for exactly that child. False until then, so a session that somehow
     /// announced before its first child was up would be typed into rather than filed for.
     var quotaKnockFiling = false
+    /// The capacity-fallback net's state (OverloadFallback.swift), per session, and whether THIS
+    /// child's account has the hook that lets its typed `/model` through, read at spawn like
+    /// `quotaKnockFiling`.
+    var overloadRevert = OverloadRevertState()
+    var preModelSwitchHook = false
     /// And what it has been told about the MACHINE the session is running on (HostHealthKnock.swift
     /// owns the rules). Per session rather than per child, on the arm above's terms: a relaunch
     /// replaces the conversation's process and not the alarm, and an alarm this session has already
@@ -328,6 +333,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // rather than after). Re-read on every pass, so a relaunch onto another account - or one
         // that follows an install - answers for the child it is starting.
         quotaKnockFiling = quotaKnockFilingAvailable(home: account.launchHome)
+        preModelSwitchHook = preModelSwitchHookRegistered(home: account.launchHome)
         // The MCP authorizations this account is missing, taken from the siblings that have them
         // (MCPAuthSync.swift). Inside the loop rather than before it, because the account can CHANGE
         // between two passes: a cap handoff moves the session onto a home that has never authorized
@@ -789,14 +795,20 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // tick: move to a sibling that can still serve the model, else accept the configured
             // fallback pairing here. Both rules, and why they skip a safeguard drift, live in
             // ModelDegradation.swift.
+            // A capacity fallback (`model_fallback`) explains the divergence without any quota
+            // problem, which neither mover can cure (OverloadFallback.swift).
+            let overloadActive = overloadFallbackExplains(
+                event: watcher.lastOverloadFallback, actualModel: watcher.lastModel,
+                primaryModel: effectivePrimary)
             applyDegradationRescue(plan: &plan, watcher: &watcher, driftActive: drift.isActive,
-                                   policy: policy, account: account, providerID: provider.id,
+                                   overloadActive: overloadActive, policy: policy,
+                                   account: account, providerID: provider.id,
                                    primaryModel: effectivePrimary, quarantine: quarantine,
                                    steering: steering, fuseAllows: fuse.allows(),
                                    reserves: reserves)
             applyFallbackProfile(plan: &plan, applied: &fallbackApplied, watcher: &watcher,
-                                 driftActive: drift.isActive, policy: policy, account: account,
-                                 primaryModel: effectivePrimary)
+                                 driftActive: drift.isActive, overloadActive: overloadActive,
+                                 policy: policy, account: account, primaryModel: effectivePrimary)
 
             // Safeguard-fallback restore: the API fell this session onto a fallback model and left
             // it at its own default depth, so put the declared depth back at an idle moment - on
@@ -1265,6 +1277,26 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 seen: board.seen, caughtUp: watcher.caughtUp,
                 userTurnAt: watcher.lastUserTurnAt, conversation: watcher.transcriptSessionID)
             if woke != nil { lastComposerWrite = Date() }
+            // THE SAFETY NET FOR A WINDOW STUCK ON A CAPACITY FALLBACK (OverloadFallback.swift):
+            // after the restart wake, before the advisory knocks, the same door and the same gates.
+            let reverted = applyOverloadRevert(
+                &overloadRevert, pid: supervisorPID, event: watcher.lastOverloadFallback,
+                actualModel: watcher.lastModel, primaryModel: effectivePrimary,
+                providerID: provider.id, driftActive: drift.isActive,
+                modelCommandAt: watcher.lastModelCommandAt, mode: overloadRevertMode,
+                hookInstalled: preModelSwitchHook,
+                typedAlready: action.typed != nil || resetTyped != nil || resumed != nil
+                    || woke != nil || reserveHeld,
+                session: board.state, quiet: board.quiet, turnEnded: turnOver,
+                keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
+                draftSuspected: draftSuspected, waitingOnPerson: board.dialogPossible,
+                seen: board.seen)
+            if reverted != nil { lastComposerWrite = Date() }
+            // Our own switch is not a person's choice: spend its stamp so the adoption skips it.
+            if let command = overloadRevert.confirmedCommandAt {
+                sessionModelState.servedModelCommandAt = command
+                overloadRevert.confirmedCommandAt = nil
+            }
             // AND THE ONE LINE NOBODY ASKED FOR: the account under this session is running out, and
             // the movers above cannot help a session that is busy (QuotaKnock.swift). Same door and
             // the same gates, after the request station rather than beside it - a tick that has just
@@ -1273,7 +1305,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let knocked = applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
                                           account: account, primaryModel: effectivePrimary,
                                           typedAlready: action.typed != nil || resumed != nil
-                                              || resetTyped != nil || woke != nil || reserveHeld,
+                                              || resetTyped != nil || woke != nil
+                                              || reverted != nil || reserveHeld,
                                           session: board.state,
                                           quiet: board.quiet,
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
@@ -1300,6 +1333,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let hostKnocked = applyHostHealthKnock(
                 &hostHealthKnock, pid: supervisorPID,
                 typedAlready: action.typed != nil || resumed != nil || knocked != nil
+                    || reverted != nil
                     || resetTyped != nil || woke != nil || reserveHeld,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,

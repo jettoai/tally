@@ -28,7 +28,7 @@ enum LineNeedle: Int, CaseIterable {
     case promptSourceAny, promptSourceSystem, promptSourceTyped, promptSourceQueued, promptSourceSdk
     case taskNotificationTag, compactSummary, apiError, refusalFallback, authFailed
     case modelCommandTag, modelStdout, originAny, originHuman, originTaskNotification
-    case contentTaskNotification, statusStopped, statusKilled, cronDelete
+    case contentTaskNotification, statusStopped, statusKilled, cronDelete, overloadFallback
 
     var literal: String {
         switch self {
@@ -56,6 +56,7 @@ enum LineNeedle: Int, CaseIterable {
         case .statusStopped: "<status>stopped</status>"
         case .statusKilled: "<status>killed</status>"
         case .cronDelete: cronDeleteMarker
+        case .overloadFallback: overloadFallbackSubtypeLiteral
         }
     }
 

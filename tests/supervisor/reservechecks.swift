@@ -223,7 +223,7 @@ func runReserveMoverChecks() {
     // AND THE SUPERVISOR SIDE: a session under its owner's line with nowhere to go gets nothing
     // typed into it by Tally, at every one of the five writers, and the app's own pin yields.
     check("every Tally writer stands down while a reserve holds the session",
-          loop.components(separatedBy: "|| reserveHeld,").count == 6)
+          loop.components(separatedBy: "|| reserveHeld,").count == 7)
     check("the app's own pin yields once the account it names is under its line",
           loop.contains("pinnedUnderReserve: drought.pinnedUnderReserve && !spendReserve"))
     check("…and the launch that spends one says so before it names the account",

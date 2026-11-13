@@ -81,6 +81,8 @@ struct TranscriptWatcher {
     /// The model id of the newest assistant event seen so far - how the supervisor notices a
     /// server-side model fallback.
     var lastModel: String?
+    /// The newest capacity fallback (`model_fallback`) not yet answered by its original model.
+    var lastOverloadFallback: OverloadFallbackEvent?
     /// When the user last typed Claude Code's OWN `/model` in this child, and the effort the line
     /// it printed named.
     ///

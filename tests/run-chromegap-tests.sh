@@ -75,7 +75,7 @@ swiftc -o "$out" tests/chromegap/main.swift tests/chromegap/routingchecks.swift 
   TallyCLI/ReloadRequest.swift \
   TallyCLI/RequestTranscript.swift \
   TallyCLI/ResumePrompt.swift \
-  TallyCLI/SafeguardDrift.swift \
+  TallyCLI/SafeguardDrift.swift TallyCLI/OverloadFallback.swift \
   TallyCLI/SessionAddressing.swift \
   TallyCLI/SessionAddressLookup.swift \
   TallyCLI/SessionClear.swift \

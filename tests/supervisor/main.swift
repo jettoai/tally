@@ -360,6 +360,8 @@ func runAuditSinkChecks() {
 }
 
 runNativeModelChecks()
+runOverloadRevertChecks()
+runOverloadReplayChecks()
 runMCPPickerChecks()
 runAccountWindowChecks()
 runPickerChecks()

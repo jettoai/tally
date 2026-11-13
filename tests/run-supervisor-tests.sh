@@ -70,6 +70,9 @@
 # to its neighbours in tests/addshare, and what this suite compiles them for is the audit line and
 # the fact that Supervisor.swift will not build without them.
 #
+# OverloadFallback.swift/OverloadRevert.swift are the capacity-fallback reading (`model_fallback`) the transcript watcher
+# parses and the two degradation movers consult (overloadrevertchecks.swift, overloadreplaychecks.swift).
+#
 # PreSpawnHook.swift is here for the same reason: both spawn gates call it (issue #7). Its own
 # behaviour is asserted in tests/prespawn against a real /bin/sh.
 set -euo pipefail
@@ -95,6 +98,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   tests/supervisor/clearancemovechecks.swift \
   tests/supervisor/reloadrepickchecks.swift tests/supervisor/relaunchchecks.swift tests/supervisor/positionalchecks.swift \
   tests/supervisor/safeguardchecks.swift \
+  tests/supervisor/overloadrevertchecks.swift tests/supervisor/overloadreplaychecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/reassertchecks.swift tests/supervisor/pendingnoticechecks.swift \
   tests/supervisor/sessionstatechecks.swift tests/supervisor/loginchecks.swift tests/supervisor/sessionorderchecks.swift \
   tests/supervisor/supervisorfreshnesschecks.swift \
@@ -157,7 +161,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/supervisormainchec
   Tally/Core/ChromeSettingSignal.swift \
   Tally/Core/SessionMonitoring.swift TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AppRelaunch.swift TallyCLI/AppRelaunchLog.swift \
   TallyCLI/AccountComfort.swift \
-  TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/WindowRepick.swift TallyCLI/WindowRepickWindow.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
+  TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/WindowRepick.swift TallyCLI/WindowRepickWindow.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift TallyCLI/OverloadFallback.swift TallyCLI/OverloadRevert.swift \
   TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift TallyCLI/WallForecast.swift TallyCLI/LiveSessionCount.swift TallyCLI/DroughtWatch.swift \
   TallyCLI/CapResume.swift TallyCLI/CapResumeLog.swift TallyCLI/SelfSwitchResume.swift TallyCLI/RestartWake.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/FocusEvents.swift TallyCLI/KeyboardTrace.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \

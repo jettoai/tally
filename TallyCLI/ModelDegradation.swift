@@ -14,6 +14,12 @@ import Foundation
 // not a quota problem at all: the API itself moved this conversation onto a fallback model, and no
 // sibling account cures that. What that case wants is the declared depth put back on the model the
 // API chose, which is SafeguardDrift.swift's job.
+//
+// And to a CAPACITY fallback (`model_fallback`, trigger=server_error, OverloadFallback.swift) for
+// the same reason: the serving side was overloaded for a moment and moved one request, which no
+// account switch cures and no fallback profile should freeze. Before this the supervisor read every
+// such event as a quota degradation: on 2026-11-13 it relaunched 6 windows onto `--model opus` and
+// moved 12 more to another account within seconds of the event.
 
 /// Move the conversation to a sibling whose flagship window still has real room, KEEPING the model
 /// this session was launched for: the flagship-first response to a quota degradation. Not for
@@ -35,13 +41,14 @@ import Foundation
 /// has nothing left for it to do. The fallback profile below is untouched - that one changes the
 /// model on the account the session is already on.
 func applyDegradationRescue(plan: inout RelaunchPlan?, watcher: inout TranscriptWatcher,
-                            driftActive: Bool, policy: LaunchPolicy, account: Snapshot.Account,
+                            driftActive: Bool, overloadActive: Bool = false,
+                            policy: LaunchPolicy, account: Snapshot.Account,
                             providerID: String, primaryModel: String?,
                             quarantine: [String: (model: String?, until: Date)],
                             steering: Bool, fuseAllows: Bool,
                             reserves: AccountReserves = .none,
                             snapshot loadSnapshotting: () -> (Snapshot?, String?) = loadSnapshot) {
-    guard plan == nil, !driftActive, let primary = primaryModel?.lowercased(),
+    guard plan == nil, !driftActive, !overloadActive, let primary = primaryModel?.lowercased(),
           let actual = watcher.lastModel?.lowercased(),
           !actual.contains(primary), steering, policy.mode != "manual", fuseAllows,
           watcher.isQuiet() else { return }
@@ -87,9 +94,10 @@ func applyDegradationRescue(plan: inout RelaunchPlan?, watcher: inout Transcript
 /// must not hand it a fresh chance to fire.
 func applyFallbackProfile(plan: inout RelaunchPlan?, applied: inout Bool,
                           watcher: inout TranscriptWatcher, driftActive: Bool,
+                          overloadActive: Bool = false,
                           policy: LaunchPolicy, account: Snapshot.Account,
                           primaryModel: String?) {
-    guard plan == nil, !driftActive, !applied,
+    guard plan == nil, !driftActive, !overloadActive, !applied,
           let fallbackList = policy.fallbackModel,
           policy.fallbackEffort != nil || policy.fallbackArgs != nil,
           let actual = watcher.lastModel?.lowercased(),

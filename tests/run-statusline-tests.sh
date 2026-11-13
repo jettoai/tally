@@ -20,5 +20,5 @@ swiftc -o "$out" tests/statusline/main.swift tests/statusline/completionchecks.s
   TallyCLI/SessionSwitch.swift TallyCLI/SwitchBadges.swift TallyCLI/HandoffResume.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/GitRepoRoot.swift TallyCLI/Reload.swift \
   TallyCLI/LaunchFlags.swift TallyCLI/LaunchDecision.swift TallyCLI/ProviderExecutable.swift TallyCLI/ResumePrompt.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptWatcherScan.swift TallyCLI/RestartLiveWork.swift TallyCLI/TranscriptLineView.swift TallyCLI/TranscriptLineRust.swift TallyCLI/TranscriptLineBytes.swift TallyCLI/TranscriptLoginSignals.swift Tally/Core/LimitReset.swift TallyCLI/LimitResetSignals.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift Tally/Core/LaunchAxisNames.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/UnmanagedLaunch.swift TallyCLI/OpenTurn.swift \
-  TallyCLI/KeyboardIdle.swift TallyCLI/Quarantine.swift TallyCLI/SafeguardDrift.swift
+  TallyCLI/KeyboardIdle.swift TallyCLI/Quarantine.swift TallyCLI/SafeguardDrift.swift TallyCLI/OverloadFallback.swift
 "$out"

@@ -620,6 +620,9 @@ func runDraftStashChecks() {
     /// The sixth, the line that wakes a session a restart left with its background work killed
     /// (RestartWake.swift).
     let wake = (call: "applyRestartWake(", until: "if woke != nil {")
+    /// The seventh, the switch back off a capacity fallback (OverloadFallback.swift): types
+    /// `/model <declared>` once per event, under the same rules.
+    let revert = (call: "applyOverloadRevert(", until: "if reverted != nil {")
     /// That call's argument list. A call this cannot find yields nothing, so every check reading it
     /// goes red rather than vacuously green.
     func arguments(of writer: (call: String, until: String)) -> String {
@@ -651,7 +654,7 @@ func runDraftStashChecks() {
     // registry included and an unreadable one counted, while the requested line is handed only the
     // dialogs known to be open: it may answer one, so it types key by key rather than holding.
     check("every writer nobody asked for is handed a dialog that may be open, registry included",
-          [resume, knock, hostKnock, limitReset, wake].allSatisfy {
+          [resume, knock, hostKnock, limitReset, wake, revert].allSatisfy {
               arguments(of: $0).contains("waitingOnPerson: board.dialogPossible")
           })
     check("…and the requested line only the dialogs known to be open, for its keystrokes",
@@ -666,14 +669,14 @@ func runDraftStashChecks() {
     // on a reading nobody looked at: six calls, six arguments. The count moved from four when the
     // session-limit reset joined (2026-09-06), which is the whole point of counting it here - the
     // new writer could not be added without this line being read and answered for.
-    check("…and there are exactly six of them, none on the hard wait alone",
-          loop.components(separatedBy: "waitingOnPerson: board.dialogPossible").count - 1 == 5
+    check("…and there are exactly seven of them, none on the hard wait alone",
+          loop.components(separatedBy: "waitingOnPerson: board.dialogPossible").count - 1 == 6
               && loop.components(separatedBy: "waitingOnPerson: board.dialogOpen").count - 1 == 1
               && !loop.contains("waitingOnPerson: board.waitingOnPerson"))
-    check("…and each of the six records what its tick saw on the line it leaves",
-          [requested, resume, knock, hostKnock, limitReset, wake].allSatisfy {
+    check("…and each of the seven records what its tick saw on the line it leaves",
+          [requested, resume, knock, hostKnock, limitReset, wake, revert].allSatisfy {
               arguments(of: $0).contains("seen: board.seen")
-          } && loop.components(separatedBy: "seen: board.seen").count - 1 == 6)
+          } && loop.components(separatedBy: "seen: board.seen").count - 1 == 7)
 
     // MARK: - The loop that carries a plan out
 

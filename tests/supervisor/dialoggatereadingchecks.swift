@@ -148,7 +148,7 @@ func runDialogGateReadingChecks() {
     check("every writer nobody asked for asks the automatic gate, once each",
           calls("automaticSessionInputHold(", definedAs: "func automaticSessionInputHold(")
               == ["QuotaKnock.swift": 1, "HostHealthKnock.swift": 1, "CapLimitReset.swift": 1,
-                  "CapResume.swift": 1])
+                  "CapResume.swift": 1, "OverloadRevert.swift": 1])
     check("…and the shared table is asked only by the requested line and by that gate",
           calls("sessionInputHold(", definedAs: "func sessionInputHold(")
               == ["SessionInput.swift": 1, "SessionInputAutomatic.swift": 1])

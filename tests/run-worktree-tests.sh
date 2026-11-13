@@ -33,7 +33,7 @@ swiftc -o "$out" \
   TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift \
   TallyCLI/UnmanagedLaunch.swift \
   TallyCLI/DriftMonitor.swift \
-  TallyCLI/SafeguardDrift.swift \
+  TallyCLI/SafeguardDrift.swift TallyCLI/OverloadFallback.swift \
   TallyCLI/KeyboardIdle.swift \
   TallyCLI/OpenTurn.swift \
   TallyCLI/SupervisorRuntime.swift Tally/Core/ClaudeStableExecutable.swift TallyCLI/TaskListPin.swift TallyCLI/RelaunchPlan.swift \

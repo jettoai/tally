@@ -54,14 +54,14 @@ struct SettingsIdentityCard<Mark: View, Backdrop: View, Footer: View>: View {
                             }
                             TallyBatonView(segments: 3, carrying: 1, width: 40, thickness: 4)
                             HStack(spacing: 6) {
-                                Text(L("by")).font(.system(size: PageType.note)).foregroundStyle(.secondary)
+                                Text(L("by")).foregroundStyle(.secondary)
                                 ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
                                     .fill(Color.secondary, style: FillStyle(eoFill: true))
                                     .frame(width: 44, height: 10)
-                                Text(verbatim: "\u{00B7}").font(.system(size: PageType.note)).foregroundStyle(.tertiary)
+                                Text(verbatim: "\u{00B7}").foregroundStyle(.tertiary)
                                 Link("jetto.ai", destination: URL(string: "https://jetto.ai")!)
-                                    .font(.system(size: PageType.note))
                             }
+                            .font(.system(size: PageType.note))
                         }
                         Spacer(minLength: 16)
                         versionColumn

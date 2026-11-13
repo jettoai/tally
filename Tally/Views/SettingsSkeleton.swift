@@ -31,7 +31,6 @@ struct PageSkeleton: Equatable {
     static let rowIconSlot: CGFloat = 24
     static let rowIconGap: CGFloat = 12
     static var dividerInsetIcon: CGFloat { rowInsetH + rowIconSlot + rowIconGap }
-    static var dividerInsetPlain: CGFloat { rowInsetH }
     static let subRowHeight: CGFloat = 36
     // Card B: tiles.
     static let tileHeight: CGFloat = 96

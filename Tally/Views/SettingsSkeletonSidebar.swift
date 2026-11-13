@@ -69,7 +69,9 @@ struct PageSidebar<ID: Hashable, Brand: View, Tags: View, Footer: View>: View {
 
     /// Selected: black 7% on light, white 9% on dark; a hover is a step under it.
     private func fill(_ selected: Bool, hovered: Bool) -> Color {
-        let base: Color = scheme == .dark ? .white : .black
-        return base.opacity(selected ? (scheme == .dark ? 0.09 : 0.07) : hovered ? 0.05 : 0)
+        let dark = scheme == .dark
+        let base: Color = dark ? .white : .black
+        if selected { return base.opacity(dark ? 0.09 : 0.07) }
+        return base.opacity(hovered ? 0.05 : 0)
     }
 }

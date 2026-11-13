@@ -227,6 +227,9 @@ struct ModelGapLedger: Equatable {
 
     // MARK: Mirrors (shadow; the state they copy is still the authority)
 
+    /// A relaunch we execute. The two reasons that put the child on a model other than the declared
+    /// one WRITE the rewrite; the two that restate the declaration spend it; every other relaunch
+    /// (an account move, a cap handoff, a switch) says nothing about the model and leaves it alone.
     mutating func noteRelaunch(reason: String, model: String?, at: Date) {
         switch reason {
         case "fallback", "safeguard":
@@ -237,6 +240,10 @@ struct ModelGapLedger: Equatable {
             break
         }
     }
+
+    /// The declaration moved without a relaunch (a person's `/model` adopted as the pin): what we
+    /// rewrote the child to is no longer what a gap should be read against.
+    mutating func noteDeclarationAdopted() { rewrite = nil }
 
     mutating func mirror(reasserted: Bool, handled: [String], now: Date) {
         if reasserted { restatedAt = restatedAt ?? now } else { restatedAt = nil }

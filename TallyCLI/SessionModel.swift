@@ -136,7 +136,7 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     let runningEffort = state.pin.effort ?? flagValue(launchArgs, "--effort")
     let movedEffort = chosenEffort.map { $0.lowercased() != runningEffort?.lowercased() } ?? false
     guard movedModel || movedEffort else { return false }
-    if movedModel { state.pin.model = observed }
+    if movedModel { state.pin.model = observed; state.gap.noteDeclarationAdopted() }
     if movedEffort { state.pin.effort = chosenEffort }
     follow.adopt(model: state.pin.model ?? flagValue(launchArgs, "--model"),
                  effort: state.pin.effort ?? flagValue(launchArgs, "--effort"))

@@ -823,12 +823,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // when it says nobody else owns it (ModelGapAttribution.swift).
             applyDegradationRescue(plan: &plan, watcher: &watcher, gap: gap, policy: policy,
                                    account: account, providerID: provider.id,
-                                   primaryModel: effectivePrimary, quarantine: quarantine,
+                                   primaryModel: gap.declared ?? effectivePrimary, quarantine: quarantine,
                                    steering: steering, fuseAllows: fuse.allows(),
                                    reserves: reserves)
             applyFallbackProfile(plan: &plan, applied: &fallbackApplied, watcher: &watcher,
                                  gap: gap, policy: policy, account: account,
-                                 primaryModel: effectivePrimary)
+                                 primaryModel: gap.declared ?? effectivePrimary)
 
             // Safeguard-fallback restore: the API fell this session onto a fallback model and left
             // it at its own default depth, so put the declared depth back at an idle moment - on

@@ -28,16 +28,13 @@ import Foundation
 // events fell through to the quota reading.
 
 /// Whether this account's own model window is dry, read from a snapshot that is a reading: the same
-/// five gates `capLimitResetWeekly` applies (CapLimitReset.swift), then `modelRemaining <= 5`.
-/// Anything unreadable, stale, failed or absent is false: the movers then stand down, because an
-/// account move or a fallback profile is not something to do on a number nobody can vouch for.
+/// five gates `capLimitResetWeekly` applies (`vouchedSnapshotRow`, CapLimitReset.swift), then
+/// `modelRemaining <= 5`. Anything unreadable, stale, failed or absent is false: the movers then
+/// stand down, because an account move or a fallback profile is not something to do on a number
+/// nobody can vouch for.
 func modelGapQuotaEvidence(accountID: String, loaded: (Snapshot?, String?), now: Date = Date()) -> Bool {
-    let (snapshot, problem) = loaded
-    guard problem == nil,
-          let row = snapshot?.accounts.first(where: { $0.id == accountID }),
-          row.error == nil, !row.isStale, row.lastRefreshFailed == false,
-          let fetched = row.refreshedAt, now.timeIntervalSince(fetched) <= snapshotMaxAge,
-          let remaining = row.modelRemaining else { return false }
+    guard let remaining = vouchedSnapshotRow(loaded, accountID: accountID, now: now)?.modelRemaining
+    else { return false }
     return remaining <= 5
 }
 

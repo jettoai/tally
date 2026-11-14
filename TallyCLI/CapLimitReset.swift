@@ -164,13 +164,20 @@ func capLimitResetAllowed(scope: CapScope?, enabled: Bool, state: LimitResetStat
 /// enough to describe this week, and published by a fetch that actually happened.
 func capLimitResetWeekly(_ loaded: (Snapshot?, String?), accountID: String,
                          now: Date = Date()) -> Double? {
+    vouchedSnapshotRow(loaded, accountID: accountID, now: now)?.weeklyRemaining
+}
+
+/// The account's row when it passes THE FIVE above, nil otherwise. Shared with
+/// `modelGapQuotaEvidence` (ModelDegradation.swift), which asks the same "is this a reading" question.
+func vouchedSnapshotRow(_ loaded: (Snapshot?, String?), accountID: String,
+                        now: Date) -> Snapshot.Account? {
     let (snapshot, problem) = loaded
     guard problem == nil,
           let row = snapshot?.accounts.first(where: { $0.id == accountID }),
           row.error == nil, !row.isStale, row.lastRefreshFailed == false,
           let fetched = row.refreshedAt,
           now.timeIntervalSince(fetched) <= snapshotMaxAge else { return nil }
-    return row.weeklyRemaining
+    return row
 }
 
 /// What the terminal says the first time Tally answers a wall this way, and only the first time.

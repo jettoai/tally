@@ -67,6 +67,52 @@ func runModelGapChecks() {
           isCapacity(overloaded) && overloaded.owner == .overloadRevert
               && !degradationMoversMayAct(overloaded))
 
+    // MARK: the quota evidence: a reading, then room <= 5
+
+    func row(model: Double? = 3, refreshed: Date? = now.addingTimeInterval(-60), stale: Bool = false,
+             failed: Bool? = false, error: String? = nil) -> Snapshot.Account {
+        Snapshot.Account(id: "claude:A", provider: "claude", label: "A", launchHome: "/tmp/A",
+                         sessionRemaining: 90, weeklyRemaining: 90, modelRemaining: model,
+                         sessionResetsAt: nil, weeklyResetsAt: nil, modelResetsAt: nil,
+                         modelWindowName: "fable", resetCreditsAvailable: nil, isStale: stale,
+                         error: error, refreshedAt: refreshed, lastRefreshFailed: failed)
+    }
+    func evidence(_ account: Snapshot.Account, problem: String? = nil, id: String = "claude:A") -> Bool {
+        modelGapQuotaEvidence(accountID: id,
+                              loaded: (Snapshot(version: 2, generatedAt: now, accounts: [account]), problem),
+                              now: now)
+    }
+    check("quota evidence: a fresh, clean reading with room 3 is true",
+          evidence(row()))
+    check("quota evidence: the loader's problem string refuses", !evidence(row(), problem: "stale"))
+    check("quota evidence: a row error refuses", !evidence(row(error: "401")))
+    check("quota evidence: a stale row refuses", !evidence(row(stale: true)))
+    check("quota evidence: a failed refresh refuses, and so does an app that never says", !evidence(row(failed: true)) && !evidence(row(failed: nil)))
+    check("quota evidence: a reading older than snapshotMaxAge refuses, one inside it does not, and a missing stamp refuses",
+          !evidence(row(refreshed: now.addingTimeInterval(-snapshotMaxAge - 1)))
+              && evidence(row(refreshed: now.addingTimeInterval(-snapshotMaxAge + 1)))
+              && !evidence(row(refreshed: nil)))
+    check("quota evidence: no model window refuses", !evidence(row(model: nil)))
+    check("quota evidence: 5 is true and 5.1 is not", evidence(row(model: 5)) && !evidence(row(model: 5.1)))
+    check("quota evidence: an account that is not in the snapshot, or no snapshot, refuses",
+          !evidence(row(), id: "claude:Z")
+              && !modelGapQuotaEvidence(accountID: "claude:A", loaded: (nil, nil), now: now))
+    // The log: the quota flipping is a change of cause, one more line, and the owner changes with it.
+    let flipLog = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-modelgap-flip-\(getpid()).log")
+    try? FileManager.default.removeItem(at: flipLog)
+    var flipLedger = ModelGapLedger()
+    for quota in [false, false, true, true] {
+        observeModelGap(ledger: &flipLedger, declared: "sonnet", source: .project, executing: "sonnet",
+                        facts: ModelGapFacts(observed: opus), sessionID: "0123456789abcdef",
+                        quotaEvidence: { quota }, now: now, log: flipLog)
+    }
+    let flipLines = ((try? String(contentsOf: flipLog, encoding: .utf8)) ?? "").split(separator: "\n")
+    check("the quota flipping false to true is one more line, owner nobody then degradationMovers",
+          flipLines.count == 2 && flipLines[0].contains("evidence=no-quota owner=nobody")
+              && flipLines[1].contains("evidence=quota owner=degradationMovers"))
+    try? FileManager.default.removeItem(at: flipLog)
+
     // MARK: log: one line per change of cause
 
     let log = FileManager.default.temporaryDirectory
@@ -108,11 +154,27 @@ func runModelGapChecks() {
     check("the same watcher with no drift active and nothing else observed is unexplained",
           attribute(ModelGapFacts(observed: "claude-opus-4-8"), declared: "fable").cause
               == .unexplained(quotaEvidence: false))
-    check("unexplained carries the quota evidence it was handed, and is the movers' today",
+    check("unexplained carries the quota evidence it was handed: with it the movers own the gap, without it nobody",
           attribute(ModelGapFacts(observed: "claude-opus-4-8"), declared: "fable", quota: true).cause
               == .unexplained(quotaEvidence: true)
-              && attribute(ModelGapFacts(observed: "claude-opus-4-8"), declared: "fable").owner
-              == .degradationMovers)
+              && attribute(ModelGapFacts(observed: "claude-opus-4-8"), declared: "fable", quota: true).owner
+              == .degradationMovers
+              && attribute(ModelGapFacts(observed: "claude-opus-4-8"), declared: "fable").owner == .nobody)
+    // B-4551 e09 and e31: the child was reopened, so the capacity event is gone and opus still answers.
+    for id in ["s09", "s31"] {
+        let row = corpus.first { $0.id == id }!
+        let bare = ModelGapFacts(observed: row.last.map { "claude-\($0)-5-5" })
+        let dry = attribute(bare, quota: true)
+        check("replay \(id) after a restart: no event, no rewrite, no quota evidence is nobody's; with it, the movers'",
+              attribute(bare).owner == .nobody && !degradationMoversMayAct(attribute(bare))
+                  && dry.owner == .degradationMovers && degradationMoversMayAct(dry))
+    }
+    // B1: a notice that says the safeguards stopped a response but names no model is not a flag.
+    let notice = #"{"parentUuid":"p1","isSidechain":false,"type":"system","subtype":"informational","content":"Sonnet 5.5's safeguards stopped the response above \u00b7 continuing once with that noted","isMeta":false,"timestamp":"\#(stamp(60))","uuid":"notice-1","level":"notice"}"#
+    let noticed = watcherAfterScanning([notice])
+    check("B1: the informational safeguards notice sets no flag and no capacity event, and the gap is none",
+          noticed.lastFlag == nil && noticed.lastOverloadFallback == nil
+              && attribute(ModelGapFacts(watcher: noticed, driftActive: false)).cause == .none)
     check("nothing observed yet, or an observation that agrees, is none",
           attribute(ModelGapFacts()).cause == .none
               && attribute(ModelGapFacts(observed: sonnet)).cause == .none

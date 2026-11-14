@@ -769,12 +769,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // once, here, before anything below acts on the gap, and logged when the cause changes
             // (ModelGapAttribution.swift). The degradation movers and the switch back read it.
             let gap = tickModelGap(state: &sessionModelState,
-                                   followLive: follow.gated(by: !sessionModelState.isPinned).any,
-                                   watcher: watcher,
+                                   followLive: follow.gated(by: !sessionModelState.isPinned).any, watcher: watcher,
                                    driftActive: drift.isActive, typedModel: typedModel,
                                    policyModel: fleetPolicy.model, projectDeclares: project.model != nil,
                                    executing: launchPrimaryModel(launchArgs, providerID: provider.id),
-                                   spawnedAt: launchedAt, quotaEvidence: { false },
+                                   spawnedAt: launchedAt,
+                                   quotaEvidence: { modelGapQuotaEvidence(accountID: account.id, loaded: loadSnapshot()) },
                                    writeLog: provider.id == "claude")
 
             // Where this session runs and what it runs there: a `tally switch` or a panel pin, a

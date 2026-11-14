@@ -46,19 +46,19 @@ func runDeclaredModelChecks() {
     /// One tick of the attribution exactly as the supervisor calls it: declared from the pin, the
     /// typed flag and the policy; executing from the args the current child was spawned with.
     func tick(_ state: inout SessionModelState, args: [String], serving: String?, spawned: TimeInterval,
-              typed: String? = nil) -> ModelGapAttribution {
+              typed: String? = nil, quota: Bool = false) -> ModelGapAttribution {
         tickModelGap(state: &state, followLive: true,
                      watcher: watcher(serving: serving), driftActive: false, typedModel: typed,
                      policyModel: "sonnet", projectDeclares: false,
                      executing: launchPrimaryModel(args, providerID: "claude"),
-                     spawnedAt: launch.addingTimeInterval(spawned), quotaEvidence: { false },
+                     spawnedAt: launch.addingTimeInterval(spawned), quotaEvidence: { quota },
                      writeLog: false, now: launch.addingTimeInterval(spawned + 5))
     }
     /// A tick with the project profile restated, the way the supervisor calls it: the follow is live
     /// only for what `follow.gated(by: !isPinned).any` says, the same expression the loop passes.
     func restatedTick(pin: SessionModelPin = SessionModelPin(), following: FollowAxes = .both,
                       serving: String?, state suppliedState: SessionModelState? = nil,
-                      spawned: TimeInterval = 0) -> (ModelGapAttribution, SessionModelState) {
+                      spawned: TimeInterval = 0, quota: Bool = false) -> (ModelGapAttribution, SessionModelState) {
         var state = suppliedState ?? SessionModelState(sessionKey: "s3-restate", dir: dir)
         state.pin = pin
         let live = following.gated(by: !state.isPinned).any
@@ -67,7 +67,7 @@ func runDeclaredModelChecks() {
                                watcher: watcher(serving: serving), driftActive: false, typedModel: nil,
                                policyModel: "sonnet", projectDeclares: true,
                                executing: nil, spawnedAt: launch.addingTimeInterval(spawned),
-                               quotaEvidence: { false }, writeLog: false,
+                               quotaEvidence: { quota }, writeLog: false,
                                now: launch.addingTimeInterval(spawned + 5))
         return (gap, state)
     }
@@ -132,9 +132,22 @@ func runDeclaredModelChecks() {
     _ = tick(&forgotten, args: ["--model", "sonnet"], serving: sonnet, spawned: 0)
     let unrecorded = tick(&forgotten, args: planLaunchArgs(["--model", "sonnet"],
                                                            plan: plan("safeguard", model: "opus")),
-                          serving: opus, spawned: 22)
-    check("control: the same child with no record of the rewrite is read as quota, and the movers act",
-          unrecorded.cause == .unexplained(quotaEvidence: false) && moversPlan(unrecorded, serving: opus))
+                          serving: opus, spawned: 22, quota: true)
+    // B-4551 e09 and e31 (2026-11-13 23:16 and 23:07): the child was reopened, so the capacity event
+    // is gone, the ledger holds no rewrite, and opus is what answers. Nobody explains the gap; only a
+    // dry account lets the movers move it (they moved both windows with reason=degraded).
+    var restart = SessionModelState(sessionKey: "s3-e09", dir: dir)
+    let noQuota = tick(&restart, args: ["--model", "sonnet"], serving: opus, spawned: 30)
+    check("replay e09/e31: opus after a restart, no event, no rewrite, no quota evidence is nobody's and the movers stand down",
+          noQuota.cause == .unexplained(quotaEvidence: false) && noQuota.owner == .nobody
+              && !degradationMoversMayAct(noQuota) && !moversPlan(noQuota, serving: opus))
+    var restartDry = SessionModelState(sessionKey: "s3-e31", dir: dir)
+    let withQuota = tick(&restartDry, args: ["--model", "sonnet"], serving: opus, spawned: 30, quota: true)
+    check("replay e09/e31 control: the same shape with the quota evidence true is the movers' to act on",
+          withQuota.cause == .unexplained(quotaEvidence: true) && withQuota.owner == .degradationMovers
+              && moversPlan(withQuota, serving: opus))
+    check("control: the same child with no record of the rewrite and a dry account is read as quota, and the movers act",
+          unrecorded.cause == .unexplained(quotaEvidence: true) && moversPlan(unrecorded, serving: opus))
 
     // MARK: the exec: a self-update image inherits the record (B-4551 B8)
 
@@ -161,9 +174,9 @@ func runDeclaredModelChecks() {
                                                 at: launch.addingTimeInterval(10))
               && carriedGap.owner == .nobody && !moversPlan(carriedGap, serving: opus))
     var droppedState = afterExec(carrying: false).0
-    let droppedGap = tick(&droppedState, args: afterExec(carrying: false).1, serving: opus, spawned: 12)
-    check("control: without the flag the same child is unexplained and the movers act",
-          droppedGap.cause == .unexplained(quotaEvidence: false) && moversPlan(droppedGap, serving: opus))
+    let droppedGap = tick(&droppedState, args: afterExec(carrying: false).1, serving: opus, spawned: 12, quota: true)
+    check("control: without the flag the same child is unexplained, and with a dry account the movers act",
+          droppedGap.cause == .unexplained(quotaEvidence: true) && moversPlan(droppedGap, serving: opus))
     check("the loop hands the live record to the exec and seeds the new ledger from the flag",
           supervisor.contains("modelRewrite: sessionModelState.gap.rewrite, args: launchArgs)")
               && supervisor.contains("sessionModelState.gap = ModelGapLedger(rewrite: modelRewrite)"))
@@ -205,9 +218,9 @@ func runDeclaredModelChecks() {
         ("a session whose follow axes are both off", SessionModelPin(), .none, opus),
     ]
     for (name, pin, following, serving) in offSessions {
-        let (gap, afterTick) = restatedTick(pin: pin, following: following, serving: serving)
+        let (gap, afterTick) = restatedTick(pin: pin, following: following, serving: serving, quota: true)
         check("a restated profile does not park \(name): the gap stays unexplained and the movers may act",
-              gap.cause == .unexplained(quotaEvidence: false) && gap.owner == .degradationMovers
+              gap.cause == .unexplained(quotaEvidence: true) && gap.owner == .degradationMovers
                   && degradationMoversMayAct(gap) && afterTick.gap.restatedAt != nil
                   && moversPlan(gap, serving: serving))
     }
@@ -216,9 +229,9 @@ func runDeclaredModelChecks() {
           live.cause == .declarationMoved(source: .project) && live.owner == .follow
               && !degradationMoversMayAct(live) && liveState.gap.restatedAt != nil)
     let (again, _) = restatedTick(pin: SessionModelPin(model: "opus", effort: nil), serving: sonnet,
-                                  state: liveState, spawned: 30)
+                                  state: liveState, spawned: 30, quota: true)
     check("the next step: once the follow is off, a restatement already recorded is not read and the movers act",
-          again.cause == .unexplained(quotaEvidence: false) && degradationMoversMayAct(again))
+          again.cause == .unexplained(quotaEvidence: true) && degradationMoversMayAct(again))
     let (back, _) = restatedTick(serving: sonnet, state: liveState, spawned: 60)
     check("and it is still there when the follow is live again: the same record, never a second copy",
           back.cause == .declarationMoved(source: .project) && back.owner == .follow)

@@ -27,6 +27,20 @@ import Foundation
 // value) each covered the causes somebody had thought of; a person's `/model` and `overloaded`
 // events fell through to the quota reading.
 
+/// Whether this account's own model window is dry, read from a snapshot that is a reading: the same
+/// five gates `capLimitResetWeekly` applies (CapLimitReset.swift), then `modelRemaining <= 5`.
+/// Anything unreadable, stale, failed or absent is false: the movers then stand down, because an
+/// account move or a fallback profile is not something to do on a number nobody can vouch for.
+func modelGapQuotaEvidence(accountID: String, loaded: (Snapshot?, String?), now: Date = Date()) -> Bool {
+    let (snapshot, problem) = loaded
+    guard problem == nil,
+          let row = snapshot?.accounts.first(where: { $0.id == accountID }),
+          row.error == nil, !row.isStale, row.lastRefreshFailed == false,
+          let fetched = row.refreshedAt, now.timeIntervalSince(fetched) <= snapshotMaxAge,
+          let remaining = row.modelRemaining else { return false }
+    return remaining <= 5
+}
+
 /// Move the conversation to a sibling whose flagship window still has real room, KEEPING the model
 /// this session was launched for: the flagship-first response to a quota degradation. Not for
 /// pinned sessions (a pin means "this account", until the account is spent and the caller hands

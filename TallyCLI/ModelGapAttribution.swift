@@ -62,7 +62,8 @@ enum GapCause: Equatable {
     /// The key the cause hangs on, for the log and for "did the cause change".
     var evidence: String? {
         switch self {
-        case .none, .declarationMoved, .unexplained: return nil
+        case .none, .declarationMoved: return nil
+        case let .unexplained(quota): return quota ? "quota" : "no-quota"
         case let .ownCommand(since): return String(Int(since.timeIntervalSince1970))
         case let .personCommand(at, _): return String(Int(at.timeIntervalSince1970))
         case let .safeguard(key): return key
@@ -349,7 +350,8 @@ func gapOwner(of cause: GapCause, handledCapacity: [String]) -> GapOwner {
     case .declarationMoved: return .follow
     case .safeguard: return .safeguardRestore
     case let .capacity(key, _): return handledCapacity.contains(key) ? .nobody : .overloadRevert
-    case .unexplained: return .degradationMovers
+    // Account moves and fallback profiles only cure quota; with no quota evidence nobody acts.
+    case let .unexplained(quota): return quota ? .degradationMovers : .nobody
     }
 }
 

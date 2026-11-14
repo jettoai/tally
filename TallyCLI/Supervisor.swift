@@ -1152,7 +1152,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                !preSpawnAdmits(planned, provider: provider, from: account, hold: &preSpawnHold,
                                pid: supervisorPID) {
                 committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
-                                  followState: &followState, fallbackApplied: &fallbackApplied, gap: &sessionModelState.gap)
+                                  followState: &followState, fallbackApplied: &fallbackApplied,
+                                  gap: &sessionModelState.gap)
                 plan = nil
                 replacingChild = false
             }
@@ -1376,7 +1377,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     // Hand back what planning committed, so the next tick plans it again rather
                     // than believing it is already done (StandDown.swift).
                     committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
-                                      followState: &followState, fallbackApplied: &fallbackApplied, gap: &sessionModelState.gap)
+                                      followState: &followState, fallbackApplied: &fallbackApplied,
+                                      gap: &sessionModelState.gap)
                     if !unresolvedHoldWarned {
                         // To the log, never the terminal: this tick relaunches NOTHING (it
                         // `continue`s), so the child is drawing over whatever is written here
@@ -1452,8 +1454,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // B-1091: a relaunch naming no pair of its own runs what this directory and the
                 // app declare NOW (FollowAdoption.swift), so it is the only restart that lands it.
                 var plan = plan
-                foldEffectiveFollow(&plan, state: &followState, gap: &sessionModelState.gap, project: &project,
-                                    following: follow.gated(by: !sessionModelState.isPinned),
+                foldEffectiveFollow(&plan, state: &followState, gap: &sessionModelState.gap,
+                                    project: &project, following: follow.gated(by: !sessionModelState.isPinned),
                                     providerID: provider.id, launchArgs: launchArgs)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)

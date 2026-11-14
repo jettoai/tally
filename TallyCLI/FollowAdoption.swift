@@ -212,9 +212,7 @@ func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState
     else { return false }
     let target = followTarget(following, policy: policy, launchArgs: launchArgs)
     let desired = (target.model?.lowercased(), target.effort?.lowercased())
-    if !(gap.declarationMoved || followMoved(following, desired: desired, state: state)) {
-        return false
-    }
+    guard gap.declarationMoved || followMoved(following, desired: desired, state: state) else { return false }
     if followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
                               launchArgs: launchArgs) {
         state.adopt(model: desired.0, effort: desired.1)

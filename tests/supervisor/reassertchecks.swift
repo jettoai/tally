@@ -29,11 +29,11 @@ func runReassertChecks() {
 
     // The ledger of a session whose profile was written again: the restatement is the ledger's alone
     // (`FollowState` keeps none), and the follow reads it as the cause the tick attributed.
-    func restatedLedger() -> ModelGapLedger {
+    func restatedLedger(facts: ModelGapFacts = ModelGapFacts(observed: "opus")) -> ModelGapLedger {
         var ledger = ModelGapLedger()
         ledger.noteRestated(at: launch)
         observeModelGap(ledger: &ledger, declared: "sonnet", source: .project, executing: "opus",
-                        facts: ModelGapFacts(observed: "opus"), sessionID: nil,
+                        facts: facts, sessionID: nil,
                         quotaEvidence: { false }, now: launch, writeLog: false)
         return ledger
     }
@@ -97,10 +97,7 @@ func runReassertChecks() {
           attributed(restatedInEpisode).cause == .declarationMoved(source: .project)
               && attributed(restatedInEpisode).owner == .follow)
     var episodeState = FollowState(launchArgs: sample)
-    var episodeGap = ModelGapLedger()
-    episodeGap.noteRestated(at: launch)
-    observeModelGap(ledger: &episodeGap, declared: "sonnet", source: .project, executing: "opus",
-                    facts: episode, sessionID: nil, quotaEvidence: { false }, now: launch, writeLog: false)
+    var episodeGap = restatedLedger(facts: episode)
     let pulledBack = follow(&episodeState, &episodeGap, onOpus)
     check("and the follow pulls the session back to the profile in that episode",
           pulledBack?.reason == "follow" && pulledBack?.model == "sonnet" && episodeGap.restatedAt == nil)
@@ -257,21 +254,19 @@ func runReassertChecks() {
     // every source file of the CLI, comments excluded.
     let sources = ((try? FileManager.default.contentsOfDirectory(atPath: "TallyCLI")) ?? [])
         .filter { $0.hasSuffix(".swift") }.sorted()
-    func codeLines(_ name: String) -> [String] {
-        ((try? String(contentsOfFile: "TallyCLI/\(name)", encoding: .utf8)) ?? "")
+    let codeLines = Dictionary(uniqueKeysWithValues: sources.map { name in
+        (name, ((try? String(contentsOfFile: "TallyCLI/\(name)", encoding: .utf8)) ?? "")
             .components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-    }
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") })
+    })
     func occurrences(_ needle: String, in files: [String]) -> [String] {
-        files.flatMap { name in codeLines(name).filter { $0.contains(needle) }.map { "\(name): \($0)" } }
+        files.flatMap { name in (codeLines[name] ?? []).filter { $0.contains(needle) }.map { "\(name): \($0)" } }
     }
     check("the CLI sources are readable for the count locks", sources.count > 100)
     check("FollowState holds no restatement flag", occurrences("reasserted", in: sources).isEmpty)
-    let assigns = sources.flatMap { name in
-        codeLines(name).filter { $0.contains("restatedAt = ") }.map { _ in name }
-    }
     check("I5: restatedAt is assigned in three places, all in the ledger's own file",
-          assigns == ["ModelGapAttribution.swift", "ModelGapAttribution.swift", "ModelGapAttribution.swift"])
+          occurrences("restatedAt = ", in: sources).count == 3
+              && occurrences("restatedAt = ", in: ["ModelGapAttribution.swift"]).count == 3)
     let outside = sources.filter { $0 != "ModelGapAttribution.swift" }
     check("the restatement is written from one place: the profile watcher",
           occurrences(".noteRestated(", in: outside).count == 1

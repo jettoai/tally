@@ -58,7 +58,7 @@ func runModelGapChecks() {
     check("a handled capacity key hands the owner to nobody",
           {
               var ledger = ModelGapLedger()
-              ledger.mirror(reasserted: false, handled: ["s03"], now: now)
+              ledger.mirror(handled: ["s03"])
               return attribute(facts(corpus[2]), ledger: ledger).owner == .nobody
           }())
 
@@ -136,7 +136,7 @@ func runModelGapChecks() {
           }())
 
     var restated = ModelGapLedger()
-    restated.mirror(reasserted: true, handled: [], now: now)
+    restated.noteRestated(at: now)
     check("a restated profile is the follow's, ahead of any gap",
           attribute(ModelGapFacts(observed: opus), ledger: restated).cause
               == .declarationMoved(source: .project)
@@ -237,7 +237,7 @@ func runModelGapChecks() {
                                         f.commandAt = commandAt
                                         f.confirmation = person == 2 ? opus : nil
                                     }
-                                    if moved { ledger.mirror(reasserted: true, handled: [], now: now) }
+                                    if moved { ledger.noteRestated(at: now) }
                                     f.safeguardActive = safe
                                     f.safeguardKey = safe ? "flag" : nil
                                     if cap { f.overload = event(corpus[0]) }

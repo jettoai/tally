@@ -47,7 +47,7 @@ func runDeclaredModelChecks() {
     /// typed flag and the policy; executing from the args the current child was spawned with.
     func tick(_ state: inout SessionModelState, args: [String], serving: String?, spawned: TimeInterval,
               typed: String? = nil) -> ModelGapAttribution {
-        tickModelGap(state: &state, handledCapacityKeys: [], reasserted: false, followLive: true,
+        tickModelGap(state: &state, handledCapacityKeys: [], followLive: true,
                      watcher: watcher(serving: serving), driftActive: false, typedModel: typed,
                      policyModel: "sonnet", projectDeclares: false,
                      executing: launchPrimaryModel(args, providerID: "claude"),
@@ -62,7 +62,8 @@ func runDeclaredModelChecks() {
         var state = suppliedState ?? SessionModelState(sessionKey: "s3-restate", dir: dir)
         state.pin = pin
         let live = following.gated(by: !state.isPinned).any
-        let gap = tickModelGap(state: &state, handledCapacityKeys: [], reasserted: true, followLive: live,
+        state.gap.noteRestated(at: launch.addingTimeInterval(spawned + 5))
+        let gap = tickModelGap(state: &state, handledCapacityKeys: [], followLive: live,
                                watcher: watcher(serving: serving), driftActive: false, typedModel: nil,
                                policyModel: "sonnet", projectDeclares: true,
                                executing: nil, spawnedAt: launch.addingTimeInterval(spawned),
@@ -194,9 +195,10 @@ func runDeclaredModelChecks() {
 
     // MARK: a restatement only the follow can spend is not mirrored when the follow is off
 
-    // The project profile written again (`FollowState.reasserted`) is spent by the follow alone.
-    // Mirrored for a session whose follow is off, it read as `declarationMoved` for the rest of the
-    // session and the movers stood down on a real quota gap (1b1f96b).
+    // The project profile written again (`ledger.restatedAt`) is spent by the follow alone. Read for a
+    // session whose follow is off, it was `declarationMoved` for the rest of the session and the
+    // movers stood down on a real quota gap (1b1f96b). Now the ledger is the only copy, so the gate
+    // is on the READ: the record stays (a pin released later still honours it) and is not read.
     let offSessions: [(String, SessionModelPin, FollowAxes, String?)] = [
         ("a model pin", SessionModelPin(model: "opus", effort: nil), .both, sonnet),
         ("a pin on the depth only", SessionModelPin(model: nil, effort: "high"), .both, opus),
@@ -206,7 +208,7 @@ func runDeclaredModelChecks() {
         let (gap, afterTick) = restatedTick(pin: pin, following: following, serving: serving)
         check("a restated profile does not park \(name): the gap stays unexplained and the movers may act",
               gap.cause == .unexplained(quotaEvidence: false) && gap.owner == .degradationMovers
-                  && degradationMoversMayAct(gap) && afterTick.gap.restatedAt == nil
+                  && degradationMoversMayAct(gap) && afterTick.gap.restatedAt != nil
                   && moversPlan(gap, serving: serving))
     }
     let (live, liveState) = restatedTick(serving: opus)
@@ -215,8 +217,11 @@ func runDeclaredModelChecks() {
               && !degradationMoversMayAct(live) && liveState.gap.restatedAt != nil)
     let (again, _) = restatedTick(pin: SessionModelPin(model: "opus", effort: nil), serving: sonnet,
                                   state: liveState, spawned: 30)
-    check("the next step: once the follow is off, a restatement already mirrored is dropped and the movers act",
+    check("the next step: once the follow is off, a restatement already recorded is not read and the movers act",
           again.cause == .unexplained(quotaEvidence: false) && degradationMoversMayAct(again))
+    let (back, _) = restatedTick(serving: sonnet, state: liveState, spawned: 60)
+    check("and it is still there when the follow is live again: the same record, never a second copy",
+          back.cause == .declarationMoved(source: .project) && back.owner == .follow)
 
     // MARK: I8 and the two readings, as source
 

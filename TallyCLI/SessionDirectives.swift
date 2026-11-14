@@ -123,7 +123,7 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                       watcher: &watcher, childAge: childAge,
                       keyboardIdle: keyboardIdle, request: modelRequest(model.sessionKey))
     plan = planning.plan
-    applyFollowAdoption(plan: &plan, state: &follow,
+    applyFollowAdoption(plan: &plan, state: &follow, gap: &model.gap,
                         following: following.gated(by: !model.isPinned),
                         policy: policy, account: account, providerID: providerID,
                         steering: steering,

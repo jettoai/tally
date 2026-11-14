@@ -140,6 +140,7 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     if movedEffort { state.pin.effort = chosenEffort }
     follow.adopt(model: state.pin.model ?? flagValue(launchArgs, "--model"),
                  effort: state.pin.effort ?? flagValue(launchArgs, "--effort"))
+    state.gap.spendDeclaration()
     let pinned = [state.pin.model, state.pin.effort].compactMap { $0 }.joined(separator: "/")
     // NOT `warn`, and this is the one place on the model axis where that matters. The supervisor and
     // the child share a tty, so stderr lands wherever the cursor is; every other message here
@@ -237,6 +238,7 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
     /// and the follow baseline. The baseline is the half that is easy to miss - see below.
     func serve(consumingNow: Bool) {
         follow.adopt(model: pair.model, effort: pair.effort)
+        state.gap.spendDeclaration()
         state.waiting = nil
         let consumption = PendingModelConsumption(epoch: request.epoch, pin: request.pin, dir: dir)
         if consumingNow { consumption.commit(&state) } else { record = consumption }

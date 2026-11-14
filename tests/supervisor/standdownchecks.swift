@@ -30,6 +30,7 @@ private let standDownAccount = Snapshot.Account(
     error: nil)
 
 func runStandDownChecks() {
+    var noGap = ModelGapLedger()
     // MARK: - 30. The reload the first version of this hold swallowed
 
     // The sequence is the real one, three ticks of it: the request arrives while the user is
@@ -65,7 +66,7 @@ func runStandDownChecks() {
     check("a reload is held by an unresolved fork",
           relaunchHeldByUnresolvedFork(reason: plan!.reason, unresolvedFork: true))
     committed.restore(reloadEpoch: &epoch, reloadNotice: &notice, followState: &follow,
-                      fallbackApplied: &fallbackApplied)
+                      fallbackApplied: &fallbackApplied, gap: &noGap)
     check("standing down gives the stamp back", epoch == 100)
     check("and the badge with it, because the wait is on again",
           notice.pending == PendingBadge("reload at idle"))
@@ -105,7 +106,7 @@ func runStandDownChecks() {
     check("a fallback is held by an unresolved fork",
           relaunchHeldByUnresolvedFork(reason: fallbackPlan!.reason, unresolvedFork: true))
     before.restore(reloadEpoch: &epoch2, reloadNotice: &notice2, followState: &follow2,
-                   fallbackApplied: &applied)
+                   fallbackApplied: &applied, gap: &noGap)
     check("standing down gives the one shot back", !applied)
     var laterPlan: RelaunchPlan?
     applyFallbackProfile(plan: &laterPlan, applied: &applied, watcher: &fallbackWatcher,
@@ -200,9 +201,23 @@ func runStandDownChecks() {
     var scratchNotice = ReloadWait()
     var scratchFallback = false
     followBefore.restore(reloadEpoch: &scratchEpoch, reloadNotice: &scratchNotice,
-                         followState: &followState, fallbackApplied: &scratchFallback)
+                         followState: &followState, fallbackApplied: &scratchFallback, gap: &noGap)
     check("standing down puts the adopted baseline back",
           followState.followedModel == nil && followState.pendingSince == t0)
+
+    // The restatement is the ledger's, and the adoption spends it: a tick that adopted and then stood
+    // down hands it back with the baseline, or the profile written again is never honoured (the
+    // follow state restored alone would read the session as unchanged).
+    var restated = ModelGapLedger()
+    restated.noteRestated(at: t0)
+    let restatedBefore = TickCommitments(reloadEpoch: 0, reloadNotice: ReloadWait(),
+                                         followState: followState, fallbackApplied: false,
+                                         restatedAt: restated.restatedAt)
+    restated.spendDeclaration()
+    check("adopting spends the restatement", restated.restatedAt == nil)
+    restatedBefore.restore(reloadEpoch: &scratchEpoch, reloadNotice: &scratchNotice,
+                           followState: &followState, fallbackApplied: &scratchFallback, gap: &restated)
+    check("standing down puts the restatement back with the baseline", restated.restatedAt == t0)
 
     // The transcript scan is deliberately outside all of this: a cap event is drained from the byte
     // stream exactly once, so rolling it back would delete a cap rather than defer it. Cap plans are

@@ -9,6 +9,8 @@ import Foundation
 // profile had also switched the follow off (`--no-follow`).
 
 func runRelaunchFoldChecks() {
+    // No profile was written again in these cases: the ledger the fold reads is empty.
+    var noGap = ModelGapLedger()
     let sample = ["--resume", "6d14659e-0000-0000-0000-000000000000",
                   "--dangerously-skip-permissions", "--model", "claude-opus-5-5",
                   "--fallback-model", "opus", "--effort", "high"]
@@ -28,7 +30,7 @@ func runRelaunchFoldChecks() {
     for reason in ["self-update", "reload", "switch", "cap"] {
         var state = FollowState(launchArgs: sample)
         var plan = RelaunchPlan(target: target, reason: reason, countsFuse: false)
-        let folded = foldFollowIntoRelaunch(&plan, state: &state, following: true, policy: policy,
+        let folded = foldFollowIntoRelaunch(&plan, state: &state, gap: &noGap, following: true, policy: policy,
                                             launchArgs: sample)
         let next = planLaunchArgs(sample, plan: plan)
         check("a \(reason) relaunch folds the effective pair in", folded)
@@ -47,7 +49,7 @@ func runRelaunchFoldChecks() {
     var handState = FollowState(launchArgs: sample)
     var handPlan = RelaunchPlan(target: target, reason: "self-update", countsFuse: false)
     check("a session that is not following is not folded",
-          !foldFollowIntoRelaunch(&handPlan, state: &handState, following: false, policy: policy,
+          !foldFollowIntoRelaunch(&handPlan, state: &handState, gap: &noGap, following: false, policy: policy,
                                   launchArgs: sample))
     check("…and keeps its hand-typed --effort high", planLaunchArgs(sample, plan: handPlan) == sample)
 
@@ -56,14 +58,14 @@ func runRelaunchFoldChecks() {
     var ownPlan = RelaunchPlan(target: target, reason: "fallback", countsFuse: false,
                                model: "sonnet")
     check("a plan naming its own model is left alone",
-          !foldFollowIntoRelaunch(&ownPlan, state: &ownState, following: true, policy: policy,
+          !foldFollowIntoRelaunch(&ownPlan, state: &ownState, gap: &noGap, following: true, policy: policy,
                                   launchArgs: sample)
               && ownPlan.model == "sonnet" && ownPlan.effort == nil)
     var releaseState = FollowState(launchArgs: sample)
     var releasePlan = RelaunchPlan(target: target, reason: "model", countsFuse: false)
     releasePlan.clearsAxes = true
     check("a release is left alone",
-          !foldFollowIntoRelaunch(&releasePlan, state: &releaseState, following: true,
+          !foldFollowIntoRelaunch(&releasePlan, state: &releaseState, gap: &noGap, following: true,
                                   policy: policy, launchArgs: sample)
               && releasePlan.model == nil && releasePlan.effort == nil)
 
@@ -74,7 +76,7 @@ func runRelaunchFoldChecks() {
     fallbackState.adopt(model: "claude-opus-5-5", effort: "medium")
     var fallbackPlan = RelaunchPlan(target: target, reason: "cap", countsFuse: false)
     check("a fallback in effect is not folded back",
-          !foldFollowIntoRelaunch(&fallbackPlan, state: &fallbackState, following: true,
+          !foldFollowIntoRelaunch(&fallbackPlan, state: &fallbackState, gap: &noGap, following: true,
                                   policy: policy, launchArgs: fallbackArgs)
               && planLaunchArgs(fallbackArgs, plan: fallbackPlan) == fallbackArgs)
 
@@ -83,7 +85,7 @@ func runRelaunchFoldChecks() {
     var aliasState = FollowState(launchArgs: aliasArgs)
     var aliasPlan = RelaunchPlan(target: target, reason: "switch", countsFuse: false)
     check("an alias the args already serve is not folded",
-          !foldFollowIntoRelaunch(&aliasPlan, state: &aliasState, following: true,
+          !foldFollowIntoRelaunch(&aliasPlan, state: &aliasState, gap: &noGap, following: true,
                                   policy: LaunchPolicy(model: "opus", effort: "high"),
                                   launchArgs: aliasArgs)
               && aliasPlan.model == nil)
@@ -186,7 +188,7 @@ func runRelaunchFoldChecks() {
     var fixState = FollowState(launchArgs: launched)
     var fixPlan = RelaunchPlan(target: target, reason: "cap", countsFuse: false)
     check("a cap relaunch folds the dropped default effort",
-          foldFollowIntoRelaunch(&fixPlan, state: &fixState, following: typedIntent.follow,
+          foldFollowIntoRelaunch(&fixPlan, state: &fixState, gap: &noGap, following: typedIntent.follow,
                                  policy: noEffort, launchArgs: launched))
     let fixed = planLaunchArgs(resumeArgs, plan: fixPlan)
     check("…and the child runs the typed model verbatim with no --effort", fixed == wanted)
@@ -209,7 +211,7 @@ func runRelaunchFoldChecks() {
     // T15. The held model never moves, whatever the default becomes.
     var heldState = FollowState(launchArgs: launched)
     var heldPlan = RelaunchPlan(target: target, reason: "reload", countsFuse: false)
-    foldFollowIntoRelaunch(&heldPlan, state: &heldState, following: typedIntent.follow,
+    foldFollowIntoRelaunch(&heldPlan, state: &heldState, gap: &noGap, following: typedIntent.follow,
                            policy: LaunchPolicy(model: "sonnet", effort: "medium"),
                            launchArgs: launched)
     let heldNext = planLaunchArgs(resumeArgs, plan: heldPlan)

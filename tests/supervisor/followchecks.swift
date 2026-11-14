@@ -109,8 +109,9 @@ func runFollowChecks() {
                keyboardIdle: @escaping (TimeInterval) -> Bool = { _ in true },
                fleet: [Snapshot.Account] = [followAccount("A")],
                snapshotProblem: String? = nil) {
+        var noGap = ModelGapLedger()
         applyFollowAdoption(
-            plan: &plan, state: &state, following: following,
+            plan: &plan, state: &state, gap: &noGap, following: following,
             policy: LaunchPolicy(mode: mode, model: model, effort: effort),
             account: here, providerID: "claude", steering: steering, launchArgs: launchArgs,
             quarantine: [:],
@@ -326,6 +327,7 @@ func runFollowChecks() {
     // Runs both paths for one state; returns (adoption plan, reload fold changed the plan).
     func heldCase(_ following: FollowAxes, args: [String], model: String, effort: String)
         -> (adopted: RelaunchPlan?, folded: RelaunchPlan?) {
+        var noGap = ModelGapLedger()
         var state = FollowState(launchArgs: [])
         state.adopt(model: "fable", effort: "xhigh")
         var planned: RelaunchPlan?
@@ -337,7 +339,7 @@ func runFollowChecks() {
         var fold = RelaunchPlan(target: here, reason: "reload", countsFuse: false)
         var foldState = FollowState(launchArgs: [])
         foldState.adopt(model: "fable", effort: "xhigh")
-        let did = foldFollowIntoRelaunch(&fold, state: &foldState, following: following,
+        let did = foldFollowIntoRelaunch(&fold, state: &foldState, gap: &noGap, following: following,
                                          policy: LaunchPolicy(mode: "auto", model: model, effort: effort),
                                          launchArgs: args)
         return (planned, did ? fold : nil)

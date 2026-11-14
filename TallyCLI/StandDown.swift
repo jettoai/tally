@@ -46,6 +46,9 @@ struct TickCommitments {
     let reloadNotice: ReloadWait
     let followState: FollowState
     let fallbackApplied: Bool
+    /// The restatement lives in the ledger, not in `followState`, and the follow spends it as it
+    /// adopts, so it has to be handed back with the adoption it went with.
+    var restatedAt: Date?
 
     /// Put every one of them back, so the next tick plans from where this one started.
     ///
@@ -54,11 +57,13 @@ struct TickCommitments {
     /// did not happen should not have spoken either. The debounce clocks inside them restart, which
     /// costs one more debounce window and never loses a request.
     func restore(reloadEpoch: inout Int, reloadNotice: inout ReloadWait,
-                 followState: inout FollowState, fallbackApplied: inout Bool) {
+                 followState: inout FollowState, fallbackApplied: inout Bool,
+                 gap: inout ModelGapLedger) {
         reloadEpoch = self.reloadEpoch
         reloadNotice = self.reloadNotice
         followState = self.followState
         fallbackApplied = self.fallbackApplied
+        gap.restoreRestated(restatedAt)
     }
 }
 

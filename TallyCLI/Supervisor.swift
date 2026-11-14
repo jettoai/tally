@@ -625,7 +625,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let appPolicy = launchPolicy(provider.id)
             // A profile written since the last tick restates what this session should run, even to
             // the value it already has (FollowAdoption.swift, #623): read BEFORE the policy below.
-            noteProjectReasserted(stamp: &projectStamp, project: &project, state: &followState,
+            noteProjectReasserted(stamp: &projectStamp, project: &project, gap: &sessionModelState.gap,
                                   providerID: provider.id, key: projectKey)
             let fleetPolicy = effectivePolicy(appPolicy, project: project)
             /// What each account's owner keeps for their own browser use, from the same document
@@ -702,8 +702,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // bottom) has to hand all of it back, or the work is not deferred but lost: the reload's
             // served epoch is the case that proved it (StandDown.swift).
             let committed = TickCommitments(reloadEpoch: reloadEpoch, reloadNotice: reloadNotice,
-                                            followState: followState,
-                                            fallbackApplied: fallbackApplied)
+                                            followState: followState, fallbackApplied: fallbackApplied,
+                                            restatedAt: sessionModelState.gap.restatedAt)
             // The safeguard restore's handled-record is a FILE, so no value snapshot can give it
             // back. It is carried from the decision to the execution point instead and written only
             // if the relaunch happens (SafeguardDrift.swift). Tick-local like the plan it belongs
@@ -770,7 +770,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // (ModelGapAttribution.swift). The degradation movers read it; nothing else yet.
             let gap = tickModelGap(state: &sessionModelState,
                                    handledCapacityKeys: overloadRevert.brake.handled,
-                                   reasserted: followState.reasserted,
                                    followLive: follow.gated(by: !sessionModelState.isPinned).any,
                                    watcher: watcher,
                                    driftActive: drift.isActive, typedModel: typedModel,
@@ -1154,7 +1153,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                !preSpawnAdmits(planned, provider: provider, from: account, hold: &preSpawnHold,
                                pid: supervisorPID) {
                 committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
-                                  followState: &followState, fallbackApplied: &fallbackApplied)
+                                  followState: &followState, fallbackApplied: &fallbackApplied, gap: &sessionModelState.gap)
                 plan = nil
                 replacingChild = false
             }
@@ -1380,7 +1379,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     // Hand back what planning committed, so the next tick plans it again rather
                     // than believing it is already done (StandDown.swift).
                     committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
-                                      followState: &followState, fallbackApplied: &fallbackApplied)
+                                      followState: &followState, fallbackApplied: &fallbackApplied, gap: &sessionModelState.gap)
                     if !unresolvedHoldWarned {
                         // To the log, never the terminal: this tick relaunches NOTHING (it
                         // `continue`s), so the child is drawing over whatever is written here
@@ -1456,7 +1455,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // B-1091: a relaunch naming no pair of its own runs what this directory and the
                 // app declare NOW (FollowAdoption.swift), so it is the only restart that lands it.
                 var plan = plan
-                foldEffectiveFollow(&plan, state: &followState, project: &project,
+                foldEffectiveFollow(&plan, state: &followState, gap: &sessionModelState.gap, project: &project,
                                     following: follow.gated(by: !sessionModelState.isPinned),
                                     providerID: provider.id, launchArgs: launchArgs)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,

@@ -222,6 +222,7 @@ func runSteeringOffChecks() {
     func followTick(steering: Bool) -> RelaunchPlan? {
         var plan: RelaunchPlan?
         var state = FollowState(launchArgs: [])
+        var noGap = ModelGapLedger()
         var watcher = TranscriptWatcher(projectDir: FileManager.default.temporaryDirectory
             .appendingPathComponent("tally-steering-follow-\(UUID().uuidString)"),
                                         since: launch.addingTimeInterval(-600), resumeID: nil)
@@ -231,7 +232,7 @@ func runSteeringOffChecks() {
         // Two passes: the first records the desired pair and starts the debounce, the second is
         // past it and adopts.
         for _ in 0 ..< 2 {
-            applyFollowAdoption(plan: &plan, state: &state, following: true, policy: policy,
+            applyFollowAdoption(plan: &plan, state: &state, gap: &noGap, following: true, policy: policy,
                                 account: liveDying, providerID: "claude", steering: steering,
                                 launchArgs: [], quarantine: [:], watcher: &watcher,
                                 keyboardIdle: { _ in true },

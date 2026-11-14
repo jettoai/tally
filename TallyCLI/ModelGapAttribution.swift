@@ -13,9 +13,11 @@ import Foundation
 // STATE OF THE MIGRATION. The attribution is computed every tick and every change of cause is
 // written to the handoff log (`model-gap=`), so a later step can be judged against real ticks. Only
 // the command tier is read by a consumer so far (`modelCommandCause`: the adoption of a person's
-// `/model`, SessionModel.swift), and it is the only writer of the served-command stamp. The ledger
-// fields `rewrite`, `restatedAt` (while the follow is live) and `handledCapacityKeys` are mirrors of
-// state that is still authoritative elsewhere.
+// `/model`, SessionModel.swift), and it is the only writer of the served-command stamp. The follow
+// reads the declaration tier too: `restatedAt` is the ONLY record that the project profile was written
+// again (written by `noteRestated`, spent by `spendDeclaration`), and the follow reads the cause this
+// file attributed from it. The ledger fields `rewrite` and `handledCapacityKeys` are still mirrors of
+// state that is authoritative elsewhere.
 
 /// Where the declared model came from. The declaration never reads the arguments of the current
 /// child: those are what we executed, which a fallback profile or a safeguard restore rewrites.
@@ -148,10 +150,15 @@ struct ModelGapLedger: Equatable {
     private(set) var typedSeen: Date?
     /// Mirror: we spawned the child on `model` for `reason` (fallback profile, safeguard restore).
     private(set) var rewrite: Rewrite?
-    /// Mirror, while the follow is live: the project profile was written again for this session
-    /// (`FollowState.reasserted`). Only the follow can spend it, so a session whose follow is off
-    /// never holds it (`tickModelGap`).
+    /// The project profile was written again for this session, even to the value it had (#623). The
+    /// one record of that: `FollowState` keeps none, which is what 35a6de18 was about (two copies
+    /// parted when the follow was off). Only the follow can spend it (`spendDeclaration`), so the
+    /// attribution reads it as `declarationMoved` only while the follow is live, and a session that
+    /// is not following keeps it unread until it does.
     private(set) var restatedAt: Date?
+    /// The cause the last tick attributed, for consumers that run later in the tick or deeper in the
+    /// call stack than `tickModelGap` (the follow). Never decided here: set from the attribution.
+    private(set) var attributed: GapCause = .none
     /// Mirror: the capacity-event keys the switch back has handled.
     private(set) var handledCapacityKeys: [String] = []
     /// What was declared when the current child started.
@@ -250,9 +257,32 @@ struct ModelGapLedger: Equatable {
     /// rewrote the child to is no longer what a gap should be read against.
     mutating func noteDeclarationAdopted() { rewrite = nil }
 
-    mutating func mirror(reasserted: Bool, handled: [String], now: Date) {
-        if reasserted { restatedAt = restatedAt ?? now } else { restatedAt = nil }
-        handledCapacityKeys = handled
+    mutating func mirror(handled: [String]) { handledCapacityKeys = handled }
+
+    // MARK: The restatement and what the follow reads of it
+
+    /// The project profile was written again (the first write stands until it is spent).
+    mutating func noteRestated(at now: Date) { restatedAt = restatedAt ?? now }
+
+    /// An adoption of a pair spends the restatement, and the cause read from it, together. `ifRead`
+    /// is the follow's own adoption: it spends only what it read, so a restatement it was kept from
+    /// reading (a command of ours in flight) is still there afterwards. The adoption of a person's
+    /// `/model` and of a `tally model` spend it whatever the cause, as the follow's flag always was.
+    mutating func spendDeclaration(ifRead: Bool = false) {
+        if ifRead && !declarationMoved { return }
+        restatedAt = nil
+        if declarationMoved { attributed = .none }
+    }
+
+    /// A tick that planned a relaunch and stood it down hands the restatement back (StandDown.swift).
+    mutating func restoreRestated(_ at: Date?) { restatedAt = at }
+
+    mutating func noteAttributed(_ cause: GapCause) { attributed = cause }
+
+    /// What the follow asks: did the declaration move since this child was spawned for it?
+    var declarationMoved: Bool {
+        if case .declarationMoved = attributed { return true }
+        return false
     }
 
     /// A new child (or a pin) re-bases what "declared since spawn" is measured against.
@@ -333,7 +363,7 @@ func degradationMoversMayAct(_ gap: ModelGapAttribution) -> Bool {
 /// the subtype separates it from every other event, and an unseen trigger is evidence, not a reason
 /// to read the event as quota.
 func attributeModelGap(declared: String?, source: DeclarationSource, executing: String?,
-                       facts: ModelGapFacts, ledger: ModelGapLedger,
+                       facts: ModelGapFacts, ledger: ModelGapLedger, followLive: Bool = true,
                        quotaEvidence: () -> Bool, now: Date) -> ModelGapAttribution {
     func result(_ cause: GapCause) -> ModelGapAttribution {
         ModelGapAttribution(declared: declared, declaredSource: source, executing: executing,
@@ -344,7 +374,11 @@ func attributeModelGap(declared: String?, source: DeclarationSource, executing: 
                                        ledger: ledger, now: now) {
         return result(command)
     }
-    if ledger.restatedAt != nil
+    // A restatement is a signal only the follow consumes, so it counts only while the follow is
+    // live: a session whose follow axes are off (a pin on either axis, `--no-follow`, both flags
+    // typed) would otherwise read `declarationMoved` for the rest of the session, with an owner that
+    // never acts, and the movers would stand down on a real quota gap (35a6de18).
+    if (followLive && ledger.restatedAt != nil)
         || (source != .pin && ledger.baseline.map { !modelsAgree(declared, $0.model) } == true
             && !modelsAgree(declared, executing)) {
         return result(.declarationMoved(source: source))
@@ -379,12 +413,13 @@ func modelGapLine(_ attribution: ModelGapAttribution, sessionID: String?, trigge
 /// One tick of the shadow: attribute, and log a change of cause. Returns the attribution.
 @discardableResult
 func observeModelGap(ledger: inout ModelGapLedger, declared: String?, source: DeclarationSource,
-                     executing: String?, facts: ModelGapFacts, sessionID: String?,
-                     quotaEvidence: () -> Bool, now: Date = Date(), writeLog: Bool = true,
-                     log: URL = handoffLog) -> ModelGapAttribution {
+                     executing: String?, facts: ModelGapFacts, followLive: Bool = true,
+                     sessionID: String?, quotaEvidence: () -> Bool, now: Date = Date(),
+                     writeLog: Bool = true, log: URL = handoffLog) -> ModelGapAttribution {
     let attribution = attributeModelGap(declared: declared, source: source, executing: executing,
-                                        facts: facts, ledger: ledger, quotaEvidence: quotaEvidence,
-                                        now: now)
+                                        facts: facts, ledger: ledger, followLive: followLive,
+                                        quotaEvidence: quotaEvidence, now: now)
+    ledger.noteAttributed(attribution.cause)
     if writeLog && ledger.transition(to: attribution) {
         var trigger: String?
         if case .capacity = attribution.cause { trigger = facts.overload?.trigger }
@@ -399,22 +434,19 @@ func observeModelGap(ledger: inout ModelGapLedger, declared: String?, source: De
 /// log line is written for claude only (the codex provider's `lastModel` has not been checked
 /// against the same rule, B6 in the design).
 @discardableResult
-func tickModelGap(state: inout SessionModelState, handledCapacityKeys: [String], reasserted: Bool,
+func tickModelGap(state: inout SessionModelState, handledCapacityKeys: [String],
                   followLive: Bool, watcher: TranscriptWatcher, driftActive: Bool, typedModel: String?,
                   policyModel: String?, projectDeclares: Bool, executing: String?,
                   spawnedAt: Date, quotaEvidence: () -> Bool, writeLog: Bool, now: Date = Date(),
                   log: URL = handoffLog) -> ModelGapAttribution {
-    // A restatement is a signal only the follow consumes (`FollowState.adopt`). A session whose
-    // follow axes are off (a pin on either axis, `--no-follow`, both flags typed) has nobody to spend
-    // it, so mirrored it would read as `declarationMoved` for the rest of the session and keep the
-    // degradation movers standing down on a real quota gap.
-    state.gap.mirror(reasserted: reasserted && followLive, handled: handledCapacityKeys, now: now)
+    state.gap.mirror(handled: handledCapacityKeys)
     let declared = state.pin.model ?? typedModel ?? policyModel
     let source: DeclarationSource = state.pin.model != nil ? .pin
         : typedModel != nil ? .typed : projectDeclares ? .project : .app
     state.gap.noteTick(spawnedAt: spawnedAt, declared: declared, source: source)
     return observeModelGap(ledger: &state.gap, declared: declared, source: source, executing: executing,
                            facts: ModelGapFacts(watcher: watcher, driftActive: driftActive),
+                           followLive: followLive,
                            sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
                            quotaEvidence: quotaEvidence, now: now, writeLog: writeLog, log: log)
 }

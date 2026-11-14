@@ -41,13 +41,11 @@ struct FollowState {
     /// True while a follow adoption has nowhere to land (no account can serve the new model), so
     /// the "waiting" note is shown once, not every tick. Cleared when an account frees up.
     var deadEnd = false
-    /// True once this project's profile was WRITTEN again since the baseline was last set (#623),
-    /// even to the value it already had. The baseline deliberately ignores a fallback's rewrite, so
-    /// a profile still reading what the baseline holds looks unchanged and the session would stay on
-    /// the fallback model forever; a fresh write is the user restating the profile, which outranks an
-    /// automatic rewrite. While set, "did the policy move" is answered against the args the child
-    /// really carries. Cleared by `adopt`, so each restatement is honoured exactly once.
-    var reasserted = false
+    // A profile WRITTEN again (#623) is not kept here: `ModelGapLedger.restatedAt` is the one record
+    // of it, and the follow reads it as the attributed cause `declarationMoved`. It used to be a flag
+    // on this struct mirrored into the ledger, and the two parted whenever the follow was off
+    // (35a6de18). Each adoption below spends it (`spendDeclaration`), so each restatement is
+    // honoured exactly once.
 
     /// Seeded from the command line this session launched with: a hand-typed `--model` IS the pair
     /// the session runs, so a Settings default that already matches it is not a change to adopt.
@@ -68,7 +66,6 @@ struct FollowState {
         followedEffort = effort?.lowercased()
         pendingSince = nil
         queuedNotice = false
-        reasserted = false
     }
 }
 
@@ -101,7 +98,8 @@ private func followMoved(_ axes: FollowAxes, desired: (String?, String?), state:
 /// `snapshot` is injected for the same reason the keyboard is: the auto-mode re-pick is the one
 /// branch that reads the fleet, and a test that cannot decide what the fleet looks like cannot reach
 /// the dead end deliberately. It defaults to the real read, so the tick calls this unchanged.
-func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, following: FollowAxes,
+func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState,
+                         gap: inout ModelGapLedger, following: FollowAxes,
                          policy: LaunchPolicy, account: Snapshot.Account, providerID: String,
                          steering: Bool, launchArgs: [String],
                          quarantine: [String: (model: String?, until: Date)],
@@ -116,10 +114,11 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
     // put on the command line while leaving this baseline stale (the reasoning lives
     // with `followAlreadySatisfied` in SupervisorRuntime.swift). Re-point the baseline
     // and say nothing - queueing here promises a relaunch that would change nothing.
-    if !(state.reasserted || followMoved(following, desired: desired, state: state))
+    if !(gap.declarationMoved || followMoved(following, desired: desired, state: state))
         || followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
                                   launchArgs: launchArgs) {
         state.adopt(model: desired.0, effort: desired.1)
+        gap.spendDeclaration(ifRead: true)
     } else if state.pendingSince == nil || desired != (state.pendingModel, state.pendingEffort) {
         (state.pendingModel, state.pendingEffort) = desired
         state.pendingSince = Date()
@@ -142,6 +141,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
             warn("also adopting launch default \(target.model ?? "default")/" +
                  "\(target.effort ?? "default")")
             state.adopt(model: desired.0, effort: desired.1)
+            gap.spendDeclaration(ifRead: true)
         } else if plan == nil {
             let repick: Snapshot.Account?
             // A FLEET SET TO OBSERVE ONLY READS EXACTLY LIKE A PIN HERE, and that is the whole of
@@ -181,6 +181,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
             plan = RelaunchPlan(target: repick, reason: "follow", countsFuse: false,
                                 model: target.model, effort: target.effort)
             state.adopt(model: desired.0, effort: desired.1)
+            gap.spendDeclaration(ifRead: true)
         }
     } else {
         // Queued behind an in-use session: the badge carries it, so the change never
@@ -197,24 +198,27 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
 ///
 /// Judged against the follow's own baseline, not against the args: the fallback profile and the
 /// safeguard restore rewrite the args on purpose without moving that baseline, and a relaunch must
-/// not quietly undo them. The one exception is a profile written again (`state.reasserted`, #623),
-/// which is judged against the args. A plan that already names a pair (a `tally model`, a fallback, a rescue)
-/// or releases one (`clearsAxes`) is more specific and is left alone, and so is a session that is
-/// not following at all (`--no-follow`, or a live model pin, which the caller folds into
-/// `following`). A hand-typed flag holds its own axis only: the fold keeps that value and moves the
-/// other axis (#14). Returns whether it folded.
+/// not quietly undo them. The one exception is a declaration that moved (`gap.declarationMoved`: a
+/// profile written again, #623), which is judged against the args. A plan that already names a pair
+/// (a `tally model`, a fallback, a rescue) or releases one (`clearsAxes`) is more specific and is
+/// left alone, and so is a session that is not following at all (`--no-follow`, or a live model pin,
+/// which the caller folds into `following`). A hand-typed flag holds its own axis only: the fold
+/// keeps that value and moves the other axis (#14). Returns whether it folded.
 @discardableResult
 func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState,
-                            following: FollowAxes, policy: LaunchPolicy,
+                            gap: inout ModelGapLedger, following: FollowAxes, policy: LaunchPolicy,
                             launchArgs: [String]) -> Bool {
     guard following.any, plan.model == nil, plan.effort == nil, !plan.clearsAxes, !plan.followFolded
     else { return false }
     let target = followTarget(following, policy: policy, launchArgs: launchArgs)
     let desired = (target.model?.lowercased(), target.effort?.lowercased())
-    if !(state.reasserted || followMoved(following, desired: desired, state: state)) { return false }
+    if !(gap.declarationMoved || followMoved(following, desired: desired, state: state)) {
+        return false
+    }
     if followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
                               launchArgs: launchArgs) {
         state.adopt(model: desired.0, effort: desired.1)
+        gap.spendDeclaration(ifRead: true)
         return false
     }
     plan.model = target.model
@@ -224,6 +228,7 @@ func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState
     plan.clearsAxes = true
     plan.followFolded = true
     state.adopt(model: desired.0, effort: desired.1)
+    gap.spendDeclaration(ifRead: true)
     return true
 }
 
@@ -231,12 +236,12 @@ func foldFollowIntoRelaunch(_ plan: inout RelaunchPlan, state: inout FollowState
 /// profile's model and effort are re-read first, into the loop's own copy, so every tick after this
 /// one follows the same reading and nothing flips the fold back. The account it pins keeps the
 /// reading the supervisor started with: that decides where the session runs, not what it runs.
-func foldEffectiveFollow(_ plan: inout RelaunchPlan, state: inout FollowState,
+func foldEffectiveFollow(_ plan: inout RelaunchPlan, state: inout FollowState, gap: inout ModelGapLedger,
                          project: inout ProjectPolicy, following: FollowAxes, providerID: String,
                          launchArgs: [String]) {
     let fresh = projectPolicy(providerID)
     (project.model, project.effort) = (fresh.model, fresh.effort)
-    foldFollowIntoRelaunch(&plan, state: &state, following: following,
+    foldFollowIntoRelaunch(&plan, state: &state, gap: &gap, following: following,
                            policy: effectivePolicy(launchPolicy(providerID), project: project),
                            launchArgs: launchArgs)
 }
@@ -248,7 +253,9 @@ func foldEffectiveFollow(_ plan: inout RelaunchPlan, state: inout FollowState,
 func resumedLaunchArgs(_ args: [String], state: inout FollowState, following: FollowAxes,
                        policy: LaunchPolicy, target: Snapshot.Account) -> [String] {
     var plan = RelaunchPlan(target: target, reason: "self-update", countsFuse: false)
-    guard foldFollowIntoRelaunch(&plan, state: &state, following: following, policy: policy,
+    // Nothing is restated in a fresh image, and `state` here is as fresh as the ledger.
+    var gap = ModelGapLedger()
+    guard foldFollowIntoRelaunch(&plan, state: &state, gap: &gap, following: following, policy: policy,
                                  launchArgs: args) else { return args }
     return planLaunchArgs(args, plan: plan)
 }
@@ -277,7 +284,7 @@ struct ProjectPolicyStamp {
 
 /// The tick's half of the restatement: when the file changed, re-read this project's model and
 /// effort into the loop's copy (the account it pins keeps the reading the supervisor started with,
-/// like `foldEffectiveFollow`) and mark the follow state reasserted, but only when THIS session's
+/// like `foldEffectiveFollow`) and note the restatement in the ledger, but only when THIS session's
 /// entry (its project and provider) was written: the file is shared by every project and provider on
 /// the machine, so a change elsewhere in it says nothing about this session. A write counts when the
 /// entry's `writtenAt` moved (a same-value rewrite included) or its model or effort differs (a write
@@ -285,14 +292,14 @@ struct ProjectPolicyStamp {
 /// failing open there would read as "the profile was cleared".
 /// `key` is the project key resolved once at startup, so no tick runs the git probe behind it.
 func noteProjectReasserted(stamp: inout ProjectPolicyStamp, project: inout ProjectPolicy,
-                           state: inout FollowState, providerID: String, key: String,
+                           gap: inout ModelGapLedger, providerID: String, key: String,
                            url: URL = projectPoliciesURL) {
     guard stamp.written(url: url), let file = try? loadProjectPoliciesForWrite(url) else { return }
     let fresh = file.policy(providerID, for: key)
     let restated = fresh.writtenAt != project.writtenAt
         || fresh.model != project.model || fresh.effort != project.effort
     (project.model, project.effort, project.writtenAt) = (fresh.model, fresh.effort, fresh.writtenAt)
-    if restated { state.reasserted = true }
+    if restated { gap.noteRestated(at: Date()) }
 }
 
 /// The launch args worth reopening a session with: the axes that FOLLOW the profile are dropped,

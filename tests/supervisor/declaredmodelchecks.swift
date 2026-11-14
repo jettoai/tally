@@ -181,6 +181,32 @@ func runDeclaredModelChecks() {
           supervisor.contains("modelRewrite: sessionModelState.gap.rewrite, args: launchArgs)")
               && supervisor.contains("sessionModelState.gap = ModelGapLedger(rewrite: modelRewrite)"))
 
+    // MARK: R5: a window that does not follow the profile keeps what was typed across the exec
+
+    var typedState = SessionModelState(sessionKey: "s3-r5", dir: dir)
+    var typedArgs = ["--model", "sonnet"]
+    typedArgs = planLaunchArgs(typedArgs, plan: plan("fallback", model: "opus"), sessionPin: typedState.pin)
+    typedState.gap.noteRelaunch(reason: "fallback", model: "opus", at: launch, typed: "sonnet")
+    /// The declaration the new image derives (Supervisor.swift), from the flag and the argv it got.
+    func declaredAfterExec(_ rewrite: ModelGapLedger.Rewrite?, args: [String]) -> String? {
+        let argv = selfUpdateArgv(binary: "/t", id: "a", label: "A", home: "/h", follow: false,
+                                  modelRewrite: rewrite, args: args)
+        let parsed = parseResuperviseArgs(Array(argv.dropFirst(2)))
+        return parsed.modelRewrite?.typed
+            ?? launchPrimaryModel(typedLaunchArgs(parsed.childArgs, following: .none), providerID: "claude")
+    }
+    check("R5: the exec'd image of a non-following window still declares the typed sonnet, not the opus the args say",
+          launchPrimaryModel(typedArgs, providerID: "claude") == "opus"
+              && declaredAfterExec(typedState.gap.rewrite, args: typedArgs) == "sonnet")
+    check("R5 control: without the typed key the image declares the rewritten opus, as before",
+          declaredAfterExec(ModelGapLedger.Rewrite(reason: "fallback", model: "opus", at: launch), args: typedArgs)
+              == "opus")
+    check("R5: a second rewrite carries the typed model on, and the loop passes it and reads it",
+          { var l = typedState.gap; l.noteRelaunch(reason: "safeguard", model: "haiku", at: launch, typed: "sonnet")
+              return l.rewrite?.typed == "sonnet" }()
+              && supervisor.contains("at: Date(), typed: typedModel)")
+              && supervisor.contains("let typedModel = modelRewrite?.typed ?? launchPrimaryModel("))
+
     // MARK: I4: what clears the record
 
     func kept(_ reason: String, model: String? = nil) -> Bool {
@@ -264,7 +290,7 @@ func runDeclaredModelChecks() {
           })
     let pair = "sessionPin: sessionModelState.pin)\n"
         + String(repeating: " ", count: 16)
-        + "sessionModelState.gap.noteRelaunch(reason: plan.reason, model: plan.model, at: Date())"
+        + "sessionModelState.gap.noteRelaunch(reason: plan.reason, model: plan.model, at: Date(), typed: typedModel)"
     check("the loop gates the restatement on the very expression the follow is run with",
           supervisor.contains("followLive: follow.gated(by: !sessionModelState.isPinned).any,")
               && supervisor.contains("following: follow.gated(by: !sessionModelState.isPinned),"))

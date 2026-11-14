@@ -84,9 +84,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // about to hand it to their first child.
     var launchArgs = removingOption(removingOption(args, "--no-handoff"), "--no-follow")
     if resumed { launchArgs = withoutPositionals(launchArgs) }
-    /// What the user typed on the command line, the declaration `launchArgs` stops being once a
-    /// relaunch rewrites it (ModelGapAttribution.swift).
-    let typedModel = launchPrimaryModel(typedLaunchArgs(args, following: follow), providerID: provider.id)
+    /// What the user typed on the command line, the declaration `launchArgs` stops being once a relaunch
+    /// rewrites it; a self-update image takes it from the rewrite, as `args` here is already rewritten.
+    let typedModel = modelRewrite?.typed ?? launchPrimaryModel(typedLaunchArgs(args, following: follow), providerID: provider.id)
     /// The fallback profile fires at most once per session.
     var fallbackApplied = false
     /// Everything the launch-default follow remembers between ticks, seeded from this session's own
@@ -1457,7 +1457,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                     providerID: provider.id, launchArgs: launchArgs)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
-                sessionModelState.gap.noteRelaunch(reason: plan.reason, model: plan.model, at: Date())
+                sessionModelState.gap.noteRelaunch(reason: plan.reason, model: plan.model, at: Date(), typed: typedModel)
                 // Republish the account this conversation now runs on, and the pair the next child
                 // will run, rather than leaving either to a later tick that reads a token figure: a
                 // `tally switch` or a `tally model` from a shell outside this session has only that

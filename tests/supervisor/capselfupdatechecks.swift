@@ -325,7 +325,17 @@ func runCapSelfUpdateChecks() {
         parseResuperviseArgs(["--id", "a", "--home", "/h", "--session-pin", "p", resuperviseModelRewriteFlag,
                               value, "--", "x"])
     }
-    for (name, value) in [("not JSON", "not-json"), ("an array", "[1]"), ("empty", ""),
+    let typedRewrite = ModelGapLedger.Rewrite(reason: "fallback", model: "opus",
+                                              at: Date(timeIntervalSince1970: 1_790_000_123.25), typed: "sonnet")
+    check("the typed model survives the round trip, and a rewrite with none still decodes with none",
+          decodeModelRewrite(encodeModelRewrite(typedRewrite) ?? "") == typedRewrite
+              && decodeModelRewrite(#"{"at":1,"model":"opus","reason":"fallback"}"#)?.typed == nil
+              && decodeModelRewrite(#"{"at":1,"model":"opus","reason":"fallback"}"#)?.model == "opus"
+              && encodeModelRewrite(rewrite)?.contains("typed") == false)
+    for (name, value) in [("a typed model that is empty", #"{"at":1,"model":"opus","reason":"fallback","typed":""}"#),
+                          ("a typed model that is not a string", #"{"at":1,"model":"opus","reason":"fallback","typed":5}"#),
+                          ("a typed model that is null", #"{"at":1,"model":"opus","reason":"fallback","typed":null}"#),
+                          ("not JSON", "not-json"), ("an array", "[1]"), ("empty", ""),
                           ("a missing model", #"{"at":1,"reason":"fallback"}"#),
                           ("an empty model", #"{"at":1,"model":"","reason":"fallback"}"#),
                           ("a missing reason", #"{"at":1,"model":"opus"}"#),

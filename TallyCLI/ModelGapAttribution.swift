@@ -10,16 +10,10 @@ import Foundation
 // pure function turns what the watcher saw and what the supervisor remembers into one cause, one
 // owner, and the evidence key, and `ModelGapLedger` remembers which signals have been spent.
 //
-// STATE OF THE MIGRATION. The attribution is computed every tick and every change of cause is
-// written to the handoff log (`model-gap=`), so a later step can be judged against real ticks. Only
-// the command tier is read by a consumer so far (`modelCommandCause`: the adoption of a person's
-// `/model`, SessionModel.swift), and it is the only writer of the served-command stamp. The follow
-// reads the declaration tier too: `restatedAt` is the ONLY record that the project profile was written
-// again (written by `noteRestated`, spent by `spendDeclaration`), and the follow reads the cause this
-// file attributed from it. So does the switch back off a capacity fallback (OverloadFallback.swift):
-// it acts only on `capacity` with owner `overloadRevert`, and `handledCapacityKeys` is its one record
-// of which events it has acted on. The ledger field `rewrite` is still a mirror of state that is
-// authoritative elsewhere.
+// STATE OF THE MIGRATION. Every consumer reads the attribution now: the command tier (the adoption of
+// a person's `/model`), `restatedAt` (the follow), `handledCapacityKeys` (the switch back off a
+// capacity fallback) and the owner (the movers). Each change of cause is written to the handoff log
+// (`model-gap=`). The ledger field `rewrite` is still a mirror of state that is authoritative elsewhere.
 
 /// Where the declared model came from. The declaration never reads the arguments of the current
 /// child: those are what we executed, which a fallback profile or a safeguard restore rewrites.
@@ -179,6 +173,8 @@ struct ModelGapLedger: Equatable {
         let reason: String
         let model: String
         let at: Date
+        /// The `--model` the user typed, so the exec'd image declares it, not the rewritten value.
+        var typed: String? = nil
     }
 
     /// A ledger resumed across a self-update exec starts from the rewrite the old image held.
@@ -251,10 +247,10 @@ struct ModelGapLedger: Equatable {
     /// A relaunch we execute. The two reasons that put the child on a model other than the declared
     /// one WRITE the rewrite; the two that restate the declaration spend it; every other relaunch
     /// (an account move, a cap handoff, a switch) says nothing about the model and leaves it alone.
-    mutating func noteRelaunch(reason: String, model: String?, at: Date) {
+    mutating func noteRelaunch(reason: String, model: String?, at: Date, typed: String? = nil) {
         switch reason {
         case "fallback", "safeguard":
-            if let model, !model.isEmpty { rewrite = Rewrite(reason: reason, model: model, at: at) }
+            if let model, !model.isEmpty { rewrite = Rewrite(reason: reason, model: model, at: at, typed: typed) }
         case "follow", "model":
             rewrite = nil
         default:
@@ -478,8 +474,9 @@ func tickModelGap(state: inout SessionModelState, followLive: Bool, watcher: Tra
 let resuperviseModelRewriteFlag = "--model-rewrite"
 
 func encodeModelRewrite(_ rewrite: ModelGapLedger.Rewrite) -> String? {
-    let fields: [String: Any] = ["at": rewrite.at.timeIntervalSince1970, "model": rewrite.model,
+    var fields: [String: Any] = ["at": rewrite.at.timeIntervalSince1970, "model": rewrite.model,
                                  "reason": rewrite.reason]
+    if let typed = rewrite.typed { fields["typed"] = typed }
     guard let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]) else {
         return nil
     }
@@ -488,12 +485,15 @@ func encodeModelRewrite(_ rewrite: ModelGapLedger.Rewrite) -> String? {
 
 /// The rewrite a previous build wrote, or nil. A key that is missing or unreadable discards the whole
 /// record rather than keeping half of it: a rewrite with no model would attribute nothing, and one
-/// with a wrong reason would be spent by the wrong relaunch.
+/// with a wrong reason would be spent by the wrong relaunch. `typed` is optional (an older build wrote
+/// none), but a present one that is not a non-empty string would make the declaration empty: whole record dropped.
 func decodeModelRewrite(_ raw: String) -> ModelGapLedger.Rewrite? {
     guard let data = raw.data(using: .utf8),
           let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
           let reason = object["reason"] as? String, !reason.isEmpty,
           let model = object["model"] as? String, !model.isEmpty,
-          let epoch = object["at"] as? Double, epoch.isFinite else { return nil }
-    return ModelGapLedger.Rewrite(reason: reason, model: model, at: Date(timeIntervalSince1970: epoch))
+          let epoch = object["at"] as? Double, epoch.isFinite,
+          object["typed"] == nil || !((object["typed"] as? String)?.isEmpty ?? true) else { return nil }
+    return ModelGapLedger.Rewrite(reason: reason, model: model, at: Date(timeIntervalSince1970: epoch),
+                                  typed: object["typed"] as? String)
 }

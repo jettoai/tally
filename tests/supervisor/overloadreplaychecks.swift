@@ -34,11 +34,16 @@ func runOverloadReplayChecks() {
     func actual(_ row: (id: String, offset: TimeInterval, last: String?)) -> String? {
         row.last.map { "claude-\($0)-5-5" }
     }
+    // Every decision below is fed the way the supervisor feeds it: the tick's attribution of the
+    // event and what answered it, never the watcher's raw fields.
     func input(_ row: (id: String, offset: TimeInterval, last: String?),
-               primary: String = "sonnet") -> OverloadRevertInput {
-        OverloadRevertInput(event: event(row), actualModel: actual(row), primaryModel: primary,
-                            providerID: "claude", safeguardDriftActive: false, modelCommandAt: nil,
-                            quiet: true)
+               primary: String = "sonnet", ledger: ModelGapLedger = ModelGapLedger())
+        -> OverloadRevertInput {
+        OverloadRevertInput(
+            gap: attributeModelGap(declared: primary, source: .app, executing: primary,
+                                   facts: ModelGapFacts(observed: actual(row), overload: event(row)),
+                                   ledger: ledger, quotaEvidence: { false }, now: now),
+            providerID: "claude", quiet: true)
     }
     check("the corpus is the 31 events of the evening", overloadCorpus.count == 31)
     let acted = overloadCorpus.filter {
@@ -53,21 +58,25 @@ func runOverloadReplayChecks() {
           tallyRelaunched.isSubset(of: Set(acted.map(\.id))))
     check("every other event, including the one nothing followed, is left alone",
           overloadCorpus.filter { !stillOnOpus.contains($0.id) }.allSatisfy {
-              overloadRevertDecision(input($0), brake: OverloadRevertBrake(), now: now)
-                  == .none("recovered")
+              overloadRevertDecision(input($0), brake: OverloadRevertBrake(), now: now) == .none("none")
           })
     check("a window whose declared model was opus all along is never touched",
           overloadCorpus.allSatisfy {
-              overloadRevertDecision(input($0, primary: "opus"), brake: OverloadRevertBrake(), now: now)
-                  == .none("primary-mismatch")
+              if case .revert = overloadRevertDecision(input($0, primary: "opus"),
+                                                       brake: OverloadRevertBrake(), now: now) {
+                  return false
+              }
+              return true
           })
     check("each acted-on event is switched once: the same event again is handled",
           acted.allSatisfy { row in
-              var brake = OverloadRevertBrake()
-              guard case let .revert(_, key) = overloadRevertDecision(input(row), brake: brake, now: now)
+              var ledger = ModelGapLedger()
+              guard case let .revert(_, key) = overloadRevertDecision(
+                  input(row, ledger: ledger), brake: OverloadRevertBrake(), now: now)
               else { return false }
-              brake.handled.append(key)
-              return overloadRevertDecision(input(row), brake: brake, now: now) == .none("handled")
+              ledger.handleCapacity(key)
+              return overloadRevertDecision(input(row, ledger: ledger), brake: OverloadRevertBrake(),
+                                            now: now) == .none("handled")
           })
     check("(c): every event is explained at the moment it happened, so neither mover fires",
           overloadCorpus.allSatisfy {
@@ -76,6 +85,33 @@ func runOverloadReplayChecks() {
                   facts: ModelGapFacts(observed: "claude-opus-5-5", overload: event($0)),
                   ledger: ModelGapLedger(), quotaEvidence: { false }, now: now))
           })
+
+    // B-4551 step 5: the eight `overloaded` events of the last 60 days, structure only (the trigger,
+    // sonnet to opus, the event's own time, and the model of the last answer after it; read off
+    // b4551-s2-overloaded-structure). The old decision refused every one of them as `.none("trigger")`,
+    // so the sessions that ended on opus stayed there. The switch back acts on exactly those.
+    let overloadedRows: [(at: String, last: String)] = [
+        ("2026-10-21T15:14:09.662Z", "opus"), ("2026-10-25T06:07:30.046Z", "opus"),
+        ("2026-10-25T06:10:18.736Z", "opus"), ("2026-10-27T09:08:01.366Z", "sonnet"),
+        ("2026-10-27T09:09:30.690Z", "sonnet"), ("2026-10-27T09:09:43.208Z", "sonnet"),
+        ("2026-11-09T05:08:29.228Z", "sonnet"), ("2026-11-11T11:29:13.607Z", "opus"),
+    ]
+    var overloadedActed = [Int]()
+    for (n, row) in overloadedRows.enumerated() {
+        let overloaded = OverloadFallbackEvent(at: parseISO(row.at)!, from: "claude-sonnet-5-5",
+                                               to: "claude-opus-5-5", trigger: "overloaded", uuid: "o\(n + 1)")
+        let gap = attributeModelGap(declared: "sonnet", source: .app, executing: "sonnet",
+                                    facts: ModelGapFacts(observed: "claude-\(row.last)-5-5", overload: overloaded),
+                                    ledger: ModelGapLedger(), quotaEvidence: { false }, now: overloaded.at)
+        let decision = overloadRevertDecision(OverloadRevertInput(gap: gap, providerID: "claude", quiet: true),
+                                              brake: OverloadRevertBrake(), now: overloaded.at)
+        if case .revert = decision { overloadedActed.append(n + 1) }
+        check("S-E o\(n + 1) (\(row.last)): \(row.last == "opus" ? "reverted" : "left alone")",
+              row.last == "opus" ? decision == .revert(model: "sonnet", eventKey: "o\(n + 1)")
+                                 : decision == .none("none"))
+    }
+    check("the eight overloaded events: the switch back acts on the four that ended on opus",
+          overloadedRows.count == 8 && overloadedActed == [1, 2, 3, 8])
 
     // The safeguard classifier's events: three in the real shape (trimmed from a live transcript,
     // varied only in uuid and category), one with a capacity event beside it and a drift active.
@@ -87,16 +123,22 @@ func runOverloadReplayChecks() {
         check("safeguard sample \(n): a flag and no capacity event, so no decision",
               watcher.lastFlag != nil && watcher.lastOverloadFallback == nil
                   && overloadRevertDecision(
-                      OverloadRevertInput(event: watcher.lastOverloadFallback,
-                                          actualModel: "claude-opus-4-8", primaryModel: "fable",
-                                          providerID: "claude", safeguardDriftActive: true,
-                                          modelCommandAt: nil, quiet: true),
-                      brake: OverloadRevertBrake(), now: now) == .none("no-event"))
+                      OverloadRevertInput(
+                          gap: attributeModelGap(
+                              declared: "fable", source: .app, executing: "fable",
+                              facts: ModelGapFacts(watcher: watcher, driftActive: true),
+                              ledger: ModelGapLedger(), quotaEvidence: { false }, now: now),
+                          providerID: "claude", quiet: true),
+                      brake: OverloadRevertBrake(), now: now) == .none("none"))
     }
     check("a capacity event beside an active safeguard drift is never reverted",
           overloadRevertDecision(
-              OverloadRevertInput(event: event(overloadCorpus[2]), actualModel: "claude-opus-5-5",
-                                  primaryModel: "sonnet", providerID: "claude",
-                                  safeguardDriftActive: true, modelCommandAt: nil, quiet: true),
+              OverloadRevertInput(
+                  gap: attributeModelGap(
+                      declared: "sonnet", source: .app, executing: "sonnet",
+                      facts: ModelGapFacts(observed: "claude-opus-5-5", overload: event(overloadCorpus[2]),
+                                           safeguardActive: true),
+                      ledger: ModelGapLedger(), quotaEvidence: { false }, now: now),
+                  providerID: "claude", quiet: true),
               brake: OverloadRevertBrake(), now: now) == .none("safeguard"))
 }

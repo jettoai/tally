@@ -767,9 +767,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                    args: watcher.lastModelCommandArgs, now: Date())
             // WHY THE SESSION MAY BE RUNNING A MODEL OTHER THAN THE ONE IT WAS MEANT TO: attributed
             // once, here, before anything below acts on the gap, and logged when the cause changes
-            // (ModelGapAttribution.swift). The degradation movers read it; nothing else yet.
+            // (ModelGapAttribution.swift). The degradation movers and the switch back read it.
             let gap = tickModelGap(state: &sessionModelState,
-                                   handledCapacityKeys: overloadRevert.brake.handled,
                                    followLive: follow.gated(by: !sessionModelState.isPinned).any,
                                    watcher: watcher,
                                    driftActive: drift.isActive, typedModel: typedModel,
@@ -1303,10 +1302,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // THE SAFETY NET FOR A WINDOW STUCK ON A CAPACITY FALLBACK (OverloadFallback.swift):
             // after the restart wake, before the advisory knocks, the same door and the same gates.
             let reverted = applyOverloadRevert(
-                &overloadRevert, pid: supervisorPID, event: watcher.lastOverloadFallback,
-                actualModel: watcher.lastModel, primaryModel: effectivePrimary,
-                providerID: provider.id, driftActive: drift.isActive,
-                modelCommandAt: watcher.lastModelCommandAt,
+                &overloadRevert, ledger: &sessionModelState.gap, pid: supervisorPID, gap: gap,
+                providerID: provider.id, modelCommandAt: watcher.lastModelCommandAt,
                 modelCommandArgs: watcher.lastModelCommandArgs, mode: overloadRevertMode,
                 hookInstalled: preModelSwitchHook,
                 typedAlready: action.typed != nil || resetTyped != nil || resumed != nil

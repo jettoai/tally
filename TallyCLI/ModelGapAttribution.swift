@@ -16,8 +16,10 @@ import Foundation
 // `/model`, SessionModel.swift), and it is the only writer of the served-command stamp. The follow
 // reads the declaration tier too: `restatedAt` is the ONLY record that the project profile was written
 // again (written by `noteRestated`, spent by `spendDeclaration`), and the follow reads the cause this
-// file attributed from it. The ledger fields `rewrite` and `handledCapacityKeys` are still mirrors of
-// state that is authoritative elsewhere.
+// file attributed from it. So does the switch back off a capacity fallback (OverloadFallback.swift):
+// it acts only on `capacity` with owner `overloadRevert`, and `handledCapacityKeys` is its one record
+// of which events it has acted on. The ledger field `rewrite` is still a mirror of state that is
+// authoritative elsewhere.
 
 /// Where the declared model came from. The declaration never reads the arguments of the current
 /// child: those are what we executed, which a fallback profile or a safeguard restore rewrites.
@@ -159,7 +161,8 @@ struct ModelGapLedger: Equatable {
     /// The cause the last tick attributed, for consumers that run later in the tick or deeper in the
     /// call stack than `tickModelGap` (the follow). Never decided here: set from the attribution.
     private(set) var attributed: GapCause = .none
-    /// Mirror: the capacity-event keys the switch back has handled.
+    /// The capacity-event keys the switch back has acted on (newest 16). The ONE record of it, written
+    /// by `handleCapacity` and `releaseCapacity` and nowhere else.
     private(set) var handledCapacityKeys: [String] = []
     /// What was declared when the current child started.
     private(set) var baseline: Baseline?
@@ -237,7 +240,7 @@ struct ModelGapLedger: Equatable {
         servedCommandAt = commandAt
     }
 
-    // MARK: Mirrors (shadow; the state they copy is still the authority)
+    // MARK: Mirror (shadow; the state it copies is still the authority)
 
     /// A relaunch we execute. The two reasons that put the child on a model other than the declared
     /// one WRITE the rewrite; the two that restate the declaration spend it; every other relaunch
@@ -257,7 +260,16 @@ struct ModelGapLedger: Equatable {
     /// rewrote the child to is no longer what a gap should be read against.
     mutating func noteDeclarationAdopted() { rewrite = nil }
 
-    mutating func mirror(handled: [String]) { handledCapacityKeys = handled }
+    // MARK: The switch back off a capacity fallback
+
+    /// The switch back acts on `key`: recorded BEFORE it types, so a failure that repeats every tick
+    /// cannot type twice, and the next attribution hands that event's gap to nobody.
+    mutating func handleCapacity(_ key: String) {
+        handledCapacityKeys = Array((handledCapacityKeys + [key]).suffix(16))
+    }
+
+    /// The terminal held the line back and nothing reached it: offer the event again next tick.
+    mutating func releaseCapacity(_ key: String) { handledCapacityKeys.removeAll { $0 == key } }
 
     // MARK: The restatement and what the follow reads of it
 
@@ -434,12 +446,11 @@ func observeModelGap(ledger: inout ModelGapLedger, declared: String?, source: De
 /// log line is written for claude only (the codex provider's `lastModel` has not been checked
 /// against the same rule, B6 in the design).
 @discardableResult
-func tickModelGap(state: inout SessionModelState, handledCapacityKeys: [String],
-                  followLive: Bool, watcher: TranscriptWatcher, driftActive: Bool, typedModel: String?,
+func tickModelGap(state: inout SessionModelState, followLive: Bool, watcher: TranscriptWatcher,
+                  driftActive: Bool, typedModel: String?,
                   policyModel: String?, projectDeclares: Bool, executing: String?,
                   spawnedAt: Date, quotaEvidence: () -> Bool, writeLog: Bool, now: Date = Date(),
                   log: URL = handoffLog) -> ModelGapAttribution {
-    state.gap.mirror(handled: handledCapacityKeys)
     let declared = state.pin.model ?? typedModel ?? policyModel
     let source: DeclarationSource = state.pin.model != nil ? .pin
         : typedModel != nil ? .typed : projectDeclares ? .project : .app

@@ -1,8 +1,9 @@
 import Foundation
 
-// The capacity fallback (`model_fallback`, trigger=server_error): the reading that keeps the two
+// The capacity fallback (`model_fallback`, any trigger): the reading that keeps the two
 // degradation movers off it, and the safety net that types `/model` for a window left on the
-// fallback model. Top-level statements live in main.swift, so these run as one function it calls.
+// fallback model. The net reads the tick's attribution (ModelGapAttribution.swift), so each gate's
+// counter-example below is a state the attribution reads, not a field the decision looks at. Top-level statements live in main.swift, so these run as one function it calls.
 
 private let overloadReal = #"""
 {"parentUuid":"6b0a53a8-7f36-4a3d-9c1a-0d2f3e4b5a69","isSidechain":false,"type":"system","subtype":"model_fallback","content":"Switched to Opus 5.5 due to high demand for Sonnet 5.5","level":"warning","trigger":"server_error","direction":"retry","originalModel":"claude-sonnet-5-5","fallbackModel":"claude-opus-5-5","requestId":"req_011Cg0000000000000000000","isMeta":false,"uuid":"c3f1a2b4-0000-4000-8000-00000000f001","timestamp":"\#(stamp(60))","userType":"external","entrypoint":"cli","cwd":"/w","sessionId":"s","version":"2.1.300"}
@@ -14,13 +15,24 @@ private func overloadEvent(at offset: TimeInterval = 60, uuid: String? = "c3f1a2
                           to: "claude-opus-5-5", trigger: trigger, uuid: uuid)
 }
 
+private func overloadGap(event: OverloadFallbackEvent? = overloadEvent(),
+                         actual: String? = "claude-opus-5-5", primary: String? = "sonnet",
+                         drift: Bool = false, command: Date? = nil,
+                         ledger: ModelGapLedger = ModelGapLedger()) -> ModelGapAttribution {
+    attributeModelGap(declared: primary, source: .app, executing: primary,
+                      facts: ModelGapFacts(observed: actual, commandAt: command, overload: event,
+                                           safeguardActive: drift),
+                      ledger: ledger, quotaEvidence: { false }, now: launch.addingTimeInterval(600))
+}
+
 private func overloadInput(event: OverloadFallbackEvent? = overloadEvent(),
                            actual: String? = "claude-opus-5-5", primary: String? = "sonnet",
                            provider: String = "claude", drift: Bool = false,
-                           command: Date? = nil, quiet: Bool = true) -> OverloadRevertInput {
-    OverloadRevertInput(event: event, actualModel: actual, primaryModel: primary,
-                        providerID: provider, safeguardDriftActive: drift,
-                        modelCommandAt: command, quiet: quiet)
+                           command: Date? = nil, quiet: Bool = true,
+                           ledger: ModelGapLedger = ModelGapLedger()) -> OverloadRevertInput {
+    OverloadRevertInput(gap: overloadGap(event: event, actual: actual, primary: primary, drift: drift,
+                                         command: command, ledger: ledger),
+                        providerID: provider, quiet: quiet)
 }
 
 func runOverloadRevertChecks() {
@@ -34,27 +46,48 @@ func runOverloadRevertChecks() {
     check("every gate open: revert to the declared alias, keyed by the event uuid",
           decide(overloadInput()) == .revert(model: "sonnet",
                                              eventKey: "c3f1a2b4-0000-4000-8000-00000000f001"))
-    check("no event: nothing", decide(overloadInput(event: nil)) == .none("no-event"))
+    check("no event: nothing is attributed to capacity", decide(overloadInput(event: nil))
+          == .none("unexplained"))
     check("codex is never touched", decide(overloadInput(provider: "codex")) == .none("codex"))
     check("a safeguard drift is never reverted", decide(overloadInput(drift: true)) == .none("safeguard"))
-    check("an unseen trigger is left alone",
-          decide(overloadInput(event: overloadEvent(trigger: "refusal"))) == .none("trigger"))
+    check("an unseen trigger is a capacity fallback too: the subtype says so, the trigger is a record",
+          ["refusal", "overloaded", "server_error", "x"].allSatisfy {
+              decide(overloadInput(event: overloadEvent(trigger: $0)))
+                  == .revert(model: "sonnet", eventKey: "c3f1a2b4-0000-4000-8000-00000000f001")
+          })
     check("a session the person pinned to opus is not this event's session",
-          decide(overloadInput(primary: "opus")) == .none("primary-mismatch"))
-    check("no primary at all is a mismatch, not a guess",
-          decide(overloadInput(primary: nil)) == .none("primary-mismatch"))
-    check("a /model after the event is the person's choice",
-          decide(overloadInput(command: launch.addingTimeInterval(90))) == .none("user-chose"))
-    check("a /model before the event is not",
-          decide(overloadInput(command: launch.addingTimeInterval(30))) != .none("user-chose"))
+          decide(overloadInput(primary: "opus")) == .none("none"))
+    check("no declared model at all is nothing to switch back to, not a guess",
+          decide(overloadInput(primary: nil)) == .none("none"))
+    check("a /model nobody has served is the person's choice",
+          decide(overloadInput(command: launch.addingTimeInterval(90))) == .none("person-command"))
+    var servedLedger = ModelGapLedger()
+    servedLedger.consumeCommand(at: launch.addingTimeInterval(30))
+    check("a /model that was served before the event is not",
+          decide(overloadInput(command: launch.addingTimeInterval(30), ledger: servedLedger))
+              == .revert(model: "sonnet", eventKey: "c3f1a2b4-0000-4000-8000-00000000f001"))
+    var typedInFlight = ModelGapLedger()
+    typedInFlight.observeOverloadRevert(typedAt: launch.addingTimeInterval(590), typedModel: "sonnet",
+                                   confirmedAt: nil)
+    check("our own /model still in flight is nobody's to answer a second time",
+          decide(overloadInput(ledger: typedInFlight)) == .none("own-command"))
     check("the original model answered again: recovered",
-          decide(overloadInput(actual: "claude-sonnet-5-5")) == .none("recovered"))
+          decide(overloadInput(actual: "claude-sonnet-5-5")) == .none("none"))
     check("not quiet: wait", decide(overloadInput(quiet: false)) == .none("not-quiet"))
     check("an alias that is not typable never reaches the terminal",
           decide(overloadInput(primary: "claude-sonnet-5-5 x")) == .none("model-name"))
     let key = overloadEventKey(overloadEvent())
-    check("one switch per event", decide(overloadInput(), OverloadRevertBrake(handled: [key]))
-          == .none("handled"))
+    var handledLedger = ModelGapLedger()
+    handledLedger.handleCapacity(key)
+    check("one switch per event", decide(overloadInput(ledger: handledLedger)) == .none("handled"))
+    var capped = ModelGapLedger()
+    for n in 0 ..< 20 { capped.handleCapacity("e\(n)") }
+    check("the ledger keeps the newest 16 keys, and releasing one offers the event again",
+          capped.handledCapacityKeys.count == 16 && capped.handledCapacityKeys.first == "e4" && {
+              var released = handledLedger
+              released.releaseCapacity(key)
+              return decide(overloadInput(ledger: released)) == .revert(model: "sonnet", eventKey: key)
+          }())
     let keyless = overloadEvent(uuid: nil)
     check("no uuid: the key is the event time",
           overloadEventKey(keyless) == ISO8601DateFormatter().string(from: keyless.at))
@@ -62,7 +95,7 @@ func runOverloadRevertChecks() {
     // MARK: - Backoff and the hourly cap
     let switched = OverloadRevertBrake(reverts: [launch.addingTimeInterval(60)])
     let soon = overloadEvent(at: 60 + 5 * 60, uuid: "again")
-    let braked = overloadRevertBrakeOnEvent(switched, event: soon)
+    let braked = overloadRevertBrakeOnEvent(switched, at: soon.at)
     check("a new event 5 minutes after our switch sets a 15-minute backoff",
           braked.notBefore == soon.at.addingTimeInterval(15 * 60))
     let againInput = overloadInput(event: soon)
@@ -73,10 +106,10 @@ func runOverloadRevertChecks() {
           decide(againInput, braked, at: soon.at.addingTimeInterval(15 * 60))
               == .revert(model: "sonnet", eventKey: "again"))
     check("an event 11 minutes after our switch sets no backoff",
-          overloadRevertBrakeOnEvent(switched, event: overloadEvent(at: 60 + 11 * 60, uuid: "late"))
+          overloadRevertBrakeOnEvent(switched, at: overloadEvent(at: 60 + 11 * 60, uuid: "late").at)
               .notBefore == nil)
     check("brake-on-event is idempotent",
-          overloadRevertBrakeOnEvent(braked, event: soon) == braked)
+          overloadRevertBrakeOnEvent(braked, at: soon.at) == braked)
     let spent = OverloadRevertBrake(reverts: [0, 600, 1200].map { launch.addingTimeInterval($0) })
     check("three switches in the hour: capped",
           decide(overloadInput(), spent, at: launch.addingTimeInterval(1800)) == .none("hour-cap"))
@@ -221,6 +254,50 @@ func runOverloadRevertChecks() {
               && !movers("applyFallbackProfile(plan:").contains("drift.isActive")
               && !supervisorText.contains("overloadFallbackExplains"))
 
+    // B-4551 step 5, as source locks (the repo's way to say "this code reads that and nothing else").
+    // I6: the code that decides on a model gap does not read the raw signals the attribution is made
+    // of. Comment lines are dropped, so prose may still name them.
+    let rawSignals = ["lastOverloadFallback", "drift.isActive", "lastModelCommandAt", "modelConfirmation"]
+    func codeLines(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+    }
+    func code(of file: String) -> String {
+        codeLines((try? String(contentsOfFile: "TallyCLI/\(file)", encoding: .utf8)) ?? "")
+    }
+    check("I6: the switch back and the degradation movers read no raw signal",
+          ["OverloadFallback.swift", "OverloadRevert.swift", "ModelDegradation.swift"].allSatisfy { file in
+              !code(of: file).isEmpty && !rawSignals.contains { code(of: file).contains($0) }
+          })
+    // The whole population: who reads the raw signals. The six files are the watcher, the drift
+    // monitor and the attribution; the other two are the places the tick FEEDS the attribution from
+    // the watcher (Supervisor.swift) and the adoption of a person's `/model` (SessionModel.swift),
+    // both of which predate this step. A seventh reader is what this stops.
+    let allowedReaders: Set<String> = ["TranscriptWatcher.swift", "TranscriptWatcherScan.swift",
+                                       "TranscriptFork.swift", "DriftMonitor.swift", "SafeguardDrift.swift",
+                                       "ModelGapAttribution.swift", "SessionModel.swift", "Supervisor.swift"]
+    let swiftFiles = ((try? FileManager.default.contentsOfDirectory(atPath: "TallyCLI")) ?? [])
+        .filter { $0.hasSuffix(".swift") }
+    let readers = Set(swiftFiles.filter { file in rawSignals.contains { code(of: file).contains($0) } })
+    check("I6: the files that read the raw signals are the known ones", swiftFiles.count > 50
+          && readers.isSubset(of: allowedReaders))
+    // I2: the line typed into the composer is the capacity cause's own evidence, decided from the gap.
+    let revertCall: String = {
+        guard let start = supervisorText.range(of: "applyOverloadRevert("),
+              let end = supervisorText.range(of: "if reverted != nil {", range: start.upperBound ..< supervisorText.endIndex)
+        else { return "" }
+        return String(supervisorText[start.upperBound ..< end.lowerBound])
+    }()
+    let decisionCode = code(of: "OverloadRevert.swift")
+    check("I2: the switch back is handed the tick's gap, and the ledger, and nothing off the watcher",
+          revertCall.contains("gap: gap") && revertCall.contains("ledger: &sessionModelState.gap")
+              && !rawSignals.filter { $0 != "lastModelCommandAt" }.contains { revertCall.contains($0) }
+              && !revertCall.contains("effectivePrimary") && !revertCall.contains("actualModel"))
+    check("I2: the decision acts on a capacity cause and its owner, with no trigger or model gate of its own",
+          decisionCode.contains("guard case let .capacity(key, _) = input.gap.cause")
+              && decisionCode.contains("input.gap.owner == .overloadRevert")
+              && !decisionCode.contains("event.trigger") && !decisionCode.contains("modelsAgree"))
+
     // MARK: - The watcher reads the event
     let reader = watcherAfterScanning([overloadReal])
     check("the real event is read", reader.lastOverloadFallback == OverloadFallbackEvent(
@@ -253,12 +330,22 @@ func runOverloadRevertChecks() {
     // MARK: - The net, driven through its own tick
     let log = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-overload-log-\(UUID().uuidString).log")
-    func tick(_ state: inout OverloadRevertState, mode: OverloadRevertMode = .auto, hook: Bool = true,
+    // One tick as the supervisor runs it: our own `/model` is settled in the ledger, the gap is
+    // attributed, and only then does the net look at it.
+    func tick(_ state: inout OverloadRevertState, ledger: inout ModelGapLedger,
+              mode: OverloadRevertMode = .auto, hook: Bool = true,
               event: OverloadFallbackEvent? = overloadEvent(), command: Date? = nil,
-              dialog: Bool = false, at: Date = now, args: String? = "sonnet", typed: inout [String],
-              result: SessionInputInjection = .done) -> String? {
-        applyOverloadRevert(&state, pid: "4242", event: event, actualModel: "claude-opus-5-5",
-                            primaryModel: "sonnet", providerID: "claude", driftActive: false,
+              dialog: Bool = false, at: Date = now, args: String? = "sonnet", drift: Bool = false,
+              typed: inout [String], result: SessionInputInjection = .done) -> String? {
+        ledger.settleOwnCommand(typedAt: state.ownCommandSince, typedModel: state.ownCommandModel,
+                                confirmedAt: state.confirmedCommandAt, commandAt: command, args: args,
+                                now: at)
+        let gap = attributeModelGap(
+            declared: "sonnet", source: .app, executing: "sonnet",
+            facts: ModelGapFacts(observed: "claude-opus-5-5", commandAt: command, overload: event,
+                                 safeguardActive: drift),
+            ledger: ledger, quotaEvidence: { false }, now: at)
+        return applyOverloadRevert(&state, ledger: &ledger, pid: "4242", gap: gap, providerID: "claude",
                             modelCommandAt: command, modelCommandArgs: args, mode: mode,
                             hookInstalled: hook,
                             typedAlready: false, session: .idle, quiet: .quiet, turnEnded: { true },
@@ -268,42 +355,45 @@ func runOverloadRevertChecks() {
     }
     func logText() -> String { (try? String(contentsOf: log, encoding: .utf8)) ?? "" }
 
-    var observed = OverloadRevertState(); var observedTyped: [String] = []
+    var observed = OverloadRevertState(); var observedLedger = ModelGapLedger(); var observedTyped: [String] = []
     check("observe: decided and logged, nothing typed",
-          tick(&observed, mode: .observe, typed: &observedTyped) == nil && observedTyped.isEmpty
+          tick(&observed, ledger: &observedLedger, mode: .observe, typed: &observedTyped) == nil && observedTyped.isEmpty
               && logText().contains("overload-revert=would-revert event=c3f1a2b4 model=sonnet"))
-    var off = OverloadRevertState(); var offTyped: [String] = []
-    check("off: nothing at all", tick(&off, mode: .off, typed: &offTyped) == nil && offTyped.isEmpty)
-    var bare = OverloadRevertState(); var bareTyped: [String] = []
-    check("auto without the hook observes", tick(&bare, hook: false, typed: &bareTyped) == nil
-          && bareTyped.isEmpty && bare.brake.handled == [key])
+    var off = OverloadRevertState(); var offLedger = ModelGapLedger(); var offTyped: [String] = []
+    check("off: nothing at all", tick(&off, ledger: &offLedger, mode: .off, typed: &offTyped) == nil && offTyped.isEmpty)
+    var bare = OverloadRevertState(); var bareLedger = ModelGapLedger(); var bareTyped: [String] = []
+    check("auto without the hook observes", tick(&bare, ledger: &bareLedger, hook: false, typed: &bareTyped) == nil
+          && bareTyped.isEmpty && bareLedger.handledCapacityKeys == [key])
 
-    var acting = OverloadRevertState(); var typed: [String] = []
+    var acting = OverloadRevertState(); var actingLedger = ModelGapLedger(); var typed: [String] = []
     check("auto with the hook types exactly the declared model, once",
-          tick(&acting, typed: &typed) == "/model sonnet" && typed == ["/model sonnet"])
+          tick(&acting, ledger: &actingLedger, typed: &typed) == "/model sonnet" && typed == ["/model sonnet"])
+    check("I2: what was typed hangs on the capacity cause's evidence",
+          { if case .capacity = overloadGap().cause { return true } else { return false } }()
+              && acting.typedKey == overloadGap().cause.evidence && acting.typedKey == key)
     check("the same event on the next tick types nothing",
-          tick(&acting, at: now.addingTimeInterval(2), typed: &typed) == nil && typed.count == 1)
+          tick(&acting, ledger: &actingLedger, at: now.addingTimeInterval(2), typed: &typed) == nil && typed.count == 1)
     check("a /model record after the typed line: done, and its stamp is handed on to be spent",
-          tick(&acting, command: now.addingTimeInterval(3), at: now.addingTimeInterval(4), typed: &typed) == nil
+          tick(&acting, ledger: &actingLedger, command: now.addingTimeInterval(3), at: now.addingTimeInterval(4), typed: &typed) == nil
               && acting.typedAt == nil && acting.confirmedCommandAt == now.addingTimeInterval(3)
               && logText().contains("overload-revert=done event=c3f1a2b4"))
     check("the line typed is the only thing typed: no digit, no Esc, no confirmation key",
           typed == ["/model sonnet"])
 
-    var stuck = OverloadRevertState(); var stuckTyped: [String] = []
-    _ = tick(&stuck, typed: &stuckTyped)
+    var stuck = OverloadRevertState(); var stuckLedger = ModelGapLedger(); var stuckTyped: [String] = []
+    _ = tick(&stuck, ledger: &stuckLedger, typed: &stuckTyped)
     check("nothing recorded within the window: stuck-confirm once, never retried",
-          tick(&stuck, at: now.addingTimeInterval(overloadRevertConfirmWindow + 1), typed: &stuckTyped) == nil
+          tick(&stuck, ledger: &stuckLedger, at: now.addingTimeInterval(overloadRevertConfirmWindow + 1), typed: &stuckTyped) == nil
               && logText().contains("overload-revert=stuck-confirm event=c3f1a2b4")
-              && tick(&stuck, at: now.addingTimeInterval(300), typed: &stuckTyped) == nil
+              && tick(&stuck, ledger: &stuckLedger, at: now.addingTimeInterval(300), typed: &stuckTyped) == nil
               && stuckTyped.count == 1)
-    var dialog = OverloadRevertState(); var dialogTyped: [String] = []
+    var dialog = OverloadRevertState(); var dialogLedger = ModelGapLedger(); var dialogTyped: [String] = []
     check("a possible dialog: nothing typed",
-          tick(&dialog, dialog: true, typed: &dialogTyped) == nil && dialogTyped.isEmpty)
-    var held = OverloadRevertState(); var heldTyped: [String] = []
+          tick(&dialog, ledger: &dialogLedger, dialog: true, typed: &dialogTyped) == nil && dialogTyped.isEmpty)
+    var held = OverloadRevertState(); var heldLedger = ModelGapLedger(); var heldTyped: [String] = []
     check("a hold from the terminal door keeps the event for the next tick",
-          tick(&held, typed: &heldTyped, result: .held) == nil && held.brake.handled.isEmpty
-              && tick(&held, at: now.addingTimeInterval(2), typed: &heldTyped) == "/model sonnet")
+          tick(&held, ledger: &heldLedger, typed: &heldTyped, result: .held) == nil && heldLedger.handledCapacityKeys.isEmpty
+              && tick(&held, ledger: &heldLedger, at: now.addingTimeInterval(2), typed: &heldTyped) == "/model sonnet")
     let lines = logText()
     check("the log names a session, an event prefix and a model, and nothing of the conversation",
           lines.split(separator: "\n").allSatisfy {
@@ -323,9 +413,9 @@ func runOverloadRevertChecks() {
     let beforeCommand = commandRecords(at: 610) + [userLine(611, uuid: "u-own1", text: "go on")]
     let afterReply = [fallbackReply, userLine(613, uuid: "u-own2", text: "and then?")]
 
-    var own = OverloadRevertState(); var ownTyped: [String] = []
+    var own = OverloadRevertState(); var ownLedger = ModelGapLedger(); var ownTyped: [String] = []
     check("typing our line starts the claim on its record",
-          tick(&own, at: launch.addingTimeInterval(605), typed: &ownTyped) == "/model sonnet"
+          tick(&own, ledger: &ownLedger, at: launch.addingTimeInterval(605), typed: &ownTyped) == "/model sonnet"
               && own.ownCommandSince == launch.addingTimeInterval(605))
     let ownReply = watcherAfterScanning(beforeCommand + afterReply)
     check("the fixture: the reply of the model we moved off is the confirmation",
@@ -406,9 +496,9 @@ func runOverloadRevertChecks() {
                                  primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
                                  now: launch.addingTimeInterval(705), log: testAuditLog)
               && theirs.pin.model == "claude-opus-5-5")
-    var elsewhere = OverloadRevertState(); var elsewhereTyped: [String] = []
-    _ = tick(&elsewhere, typed: &elsewhereTyped)
-    _ = tick(&elsewhere, command: now.addingTimeInterval(30), at: now.addingTimeInterval(31),
+    var elsewhere = OverloadRevertState(); var elsewhereLedger = ModelGapLedger(); var elsewhereTyped: [String] = []
+    _ = tick(&elsewhere, ledger: &elsewhereLedger, typed: &elsewhereTyped)
+    _ = tick(&elsewhere, ledger: &elsewhereLedger, command: now.addingTimeInterval(30), at: now.addingTimeInterval(31),
              args: "opus", typed: &elsewhereTyped)
     check("a record naming another model is not the confirmation of our line",
           elsewhere.confirmedCommandAt == nil && elsewhere.typedAt != nil)

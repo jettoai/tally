@@ -1,7 +1,42 @@
 import Foundation
 
 // The typing half of the capacity-fallback net: one tick of it, through the same composer door as
-// every other automatic writer. The decision and its brake are OverloadFallback.swift.
+// every other automatic writer. The decision is here (it reads the model gap attribution, which the
+// status line and worktree suites do not compile); the brake and the event are OverloadFallback.swift.
+
+let overloadRevertHourCap = 3
+
+struct OverloadRevertInput: Equatable {
+    /// This tick's attribution (ModelGapAttribution.swift). It alone says whether this is a capacity
+    /// fallback that is still the one answering, whether the declared model is the one it moved off,
+    /// and whether a safeguard fallback, a person's `/model` or ours owns the gap instead. Nothing is
+    /// read off the transcript watcher here.
+    let gap: ModelGapAttribution
+    let providerID: String
+    /// Nothing is writing, nobody is typing, no dialog is possible, no relaunch is planned.
+    let quiet: Bool
+}
+
+/// The model name is typed into a terminal, so only a plain alias or id may go.
+private func overloadRevertTypable(_ model: String) -> Bool {
+    !model.isEmpty && model.allSatisfy { $0.isLetter || $0.isNumber || "-._[]".contains($0) }
+}
+
+func overloadRevertDecision(_ input: OverloadRevertInput, brake: OverloadRevertBrake,
+                            now: Date) -> OverloadRevertDecision {
+    guard input.providerID == "claude" else { return .none("codex") }
+    // The four gates that used to read the watcher (a safeguard drift, the trigger, the declared
+    // model against the event, a `/model` after the event, the model still answering) are one
+    // question now: is this tick's cause a capacity fallback, and is the switch back its owner?
+    guard case let .capacity(key, _) = input.gap.cause else { return .none(input.gap.cause.name) }
+    guard input.gap.owner == .overloadRevert else { return .none("handled") }
+    if let until = brake.notBefore, until > now { return .wait(until: until) }
+    let hour = brake.reverts.filter { now.timeIntervalSince($0) < 3600 }
+    guard hour.count < overloadRevertHourCap else { return .none("hour-cap") }
+    guard input.quiet else { return .none("not-quiet") }
+    guard let model = input.gap.declared, overloadRevertTypable(model) else { return .none("model-name") }
+    return .revert(model: model, eventKey: key)
+}
 
 struct OverloadRevertState {
     var brake = OverloadRevertBrake()
@@ -31,10 +66,10 @@ func overloadRevertLine(pid: String, outcome: String, eventKey: String, model: S
 /// One tick of the net. Returns the line typed, or nil. Same gates as every other writer into the
 /// composer (`automaticSessionInputHold`); the caller treats a non-nil as a composer write.
 @discardableResult
-func applyOverloadRevert(_ state: inout OverloadRevertState, pid: String,
-                         event: OverloadFallbackEvent?, actualModel: String?,
-                         primaryModel: String?, providerID: String, driftActive: Bool,
-                         modelCommandAt: Date?, modelCommandArgs: String?, mode: OverloadRevertMode, hookInstalled: Bool,
+func applyOverloadRevert(_ state: inout OverloadRevertState, ledger: inout ModelGapLedger,
+                         pid: String, gap: ModelGapAttribution, providerID: String,
+                         modelCommandAt: Date?, modelCommandArgs: String?, mode: OverloadRevertMode,
+                         hookInstalled: Bool,
                          typedAlready: Bool, session: SupervisedState, quiet: SessionQuiet,
                          turnEnded: () -> Bool, keyboardIdle: Bool, relaunchPlanned: Bool,
                          draftSuspected: Bool, waitingOnPerson: Bool,
@@ -64,18 +99,17 @@ func applyOverloadRevert(_ state: inout OverloadRevertState, pid: String,
         state.typedAt = nil
         state.typedKey = nil
     }
-    if let event { state.brake = overloadRevertBrakeOnEvent(state.brake, event: event) }
+    if case let .capacity(_, at) = gap.cause { state.brake = overloadRevertBrakeOnEvent(state.brake, at: at) }
     let idle = !typedAlready
         && automaticSessionInputHold(state: session, quiet: quiet, turnEnded: turnEnded(),
                                      keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
                                      dialogPossible: waitingOnPerson) == nil
     guard case let .revert(model, key) = overloadRevertDecision(
-        OverloadRevertInput(event: event, actualModel: actualModel, primaryModel: primaryModel,
-                            providerID: providerID, safeguardDriftActive: driftActive,
-                            modelCommandAt: modelCommandAt, quiet: idle),
+        OverloadRevertInput(gap: gap, providerID: providerID, quiet: idle),
         brake: state.brake, now: now) else { return nil }
-    // Spent BEFORE the write: a failure that repeats every tick must not type twice.
-    state.brake.handled = Array((state.brake.handled + [key]).suffix(16))
+    // Spent BEFORE the write: a failure that repeats every tick must not type twice. The ledger holds
+    // the key, so the next tick's attribution hands the gap to nobody.
+    ledger.handleCapacity(key)
     guard mode == .act || (mode == .auto && hookInstalled) else {
         appendSessionInputLine(overloadRevertLine(pid: pid, outcome: "would-revert", eventKey: key,
                                                   model: model, now: now), to: log)
@@ -95,7 +129,7 @@ func applyOverloadRevert(_ state: inout OverloadRevertState, pid: String,
                                                   model: model, now: now), to: log)
     case .held:
         // Nothing reached the terminal: offer it again next tick.
-        state.brake.handled.removeAll { $0 == key }
+        ledger.releaseCapacity(key)
     case .uncertain, .failed:
         appendSessionInputLine(overloadRevertLine(pid: pid, outcome: "unconfirmed", eventKey: key,
                                                   model: model, now: now), to: log)

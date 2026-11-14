@@ -47,7 +47,7 @@ func runDeclaredModelChecks() {
     /// typed flag and the policy; executing from the args the current child was spawned with.
     func tick(_ state: inout SessionModelState, args: [String], serving: String?, spawned: TimeInterval,
               typed: String? = nil) -> ModelGapAttribution {
-        tickModelGap(state: &state, handledCapacityKeys: [], followLive: true,
+        tickModelGap(state: &state, followLive: true,
                      watcher: watcher(serving: serving), driftActive: false, typedModel: typed,
                      policyModel: "sonnet", projectDeclares: false,
                      executing: launchPrimaryModel(args, providerID: "claude"),
@@ -63,7 +63,7 @@ func runDeclaredModelChecks() {
         state.pin = pin
         let live = following.gated(by: !state.isPinned).any
         state.gap.noteRestated(at: launch.addingTimeInterval(spawned + 5))
-        let gap = tickModelGap(state: &state, handledCapacityKeys: [], followLive: live,
+        let gap = tickModelGap(state: &state, followLive: live,
                                watcher: watcher(serving: serving), driftActive: false, typedModel: nil,
                                policyModel: "sonnet", projectDeclares: true,
                                executing: nil, spawnedAt: launch.addingTimeInterval(spawned),

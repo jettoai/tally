@@ -43,14 +43,12 @@ func runModelGapChecks() {
               isCapacity(attribution) ? !degradationMoversMayAct(attribution)
                   : attribution.cause == .none && attribution.declared != nil
           })
-    check("replay: the old switch back and the new owner agree on every event",
+    check("replay: the switch back reverts exactly the events whose owner it is",
           zip(corpus, causes).allSatisfy { row, attribution in
-              let old = overloadRevertDecision(
-                  OverloadRevertInput(event: event(row), actualModel: row.last.map { "claude-\($0)-5-5" },
-                                      primaryModel: "sonnet", providerID: "claude",
-                                      safeguardDriftActive: false, modelCommandAt: nil, quiet: true),
+              let decision = overloadRevertDecision(
+                  OverloadRevertInput(gap: attribution, providerID: "claude", quiet: true),
                   brake: OverloadRevertBrake(), now: now)
-              if case .revert = old { return attribution.owner == .overloadRevert }
+              if case .revert = decision { return attribution.owner == .overloadRevert }
               return attribution.owner == .nobody
           })
     check("replay: no event is left to the degradation movers (the old gates never let one through)",
@@ -58,7 +56,7 @@ func runModelGapChecks() {
     check("a handled capacity key hands the owner to nobody",
           {
               var ledger = ModelGapLedger()
-              ledger.mirror(handled: ["s03"])
+              ledger.handleCapacity("s03")
               return attribute(facts(corpus[2]), ledger: ledger).owner == .nobody
           }())
 

@@ -164,13 +164,8 @@ check(sessionColumns(4, cards: 4, panel: PanelGeometry.cardPanelWidth(columns: 1
 check(sessionColumns(3, cards: 3, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
       "three in a two-column panel steps down to two")
 
-print("the sessions page keeps its own count, and spends it on the cards")
-// THE SECOND TIME THIS FACE WAS QUESTIONED (Albert, 2026-08-17): the board obeyed the picker after
-// the fix above, but the picker it obeyed was the account pages' - so a board read one card at a
-// time could not be expressed while the accounts were in two columns. The page has a count of its
-// own now, and it buys the width the CARDS are laid out at.
-//
-// AND THE THIRD TIME, the same evening: the first answer to it made the panel take the width the
+print("the sessions page lays its cards out on auto, inside the panel's one width")
+// THE PANEL IS ONE WIDTH ON EVERY PAGE (Albert, 2026-08-17): the first answer to it made the panel take the width the
 // page in front asked for, so every tab switch resized the surface by 180pt and the header switch -
 // centred in that width - moved the very tab that had just been clicked. The invariant is back and
 // asserted below: this surface is one width, whichever page is up.
@@ -178,28 +173,11 @@ let storeSource = (try? String(contentsOfFile: "Tally/Stores/SettingsStore.swift
                                encoding: .utf8)) ?? ""
 let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift",
                               encoding: .utf8)) ?? ""
-// The highest count on offer is the app target's to state and this harness compiles the geometry
-// alone, so the number below is pinned to the line it was copied from (the same static read the
-// board's card width uses above).
-// FOUR, WHERE IT WAS TWO: the ceiling of two was reasoning about a card frozen at the account
-// ladder's width, and it outlived it - auto was already using every column that fits while an
-// explicit choice stopped at two (Albert, 2026-08-18).
+// The widest board the geometry checks below cover. The board's column count is auto only
+// (B-4059): no setting offers an explicit one, so the grid asks for none.
 let maxSessionsColumns = 4
-check(storeSource.contains("static let maxSessionsColumns = \(maxSessionsColumns)"),
-      "the highest sessions count here is the one the store offers")
-// ONE SETTING READ BY BOTH SIDES, which is the whole of what keeps the count and the width honest:
-// the width asks `sessionsColumnChoice`, and so does the grid that lays the cards out in it.
-check(storeSource.contains("var sessionsColumns: Int"),
-      "the board's count is its own stored setting")
-check(reorderSource.contains("(1 ... SettingsStore.maxSessionsColumns).contains(settings.sessionsColumns)"),
-      "…and the choice itself is read from that setting")
-check(reorderSource.contains("PanelGeometry.boardColumns(chosen: sessionsColumnChoice"),
-      "…which is the same choice the grid lays out")
-// THE PREFERENCE IS NEVER REWRITTEN BY THE WIDTH. A count the surface cannot seat steps down for
-// the layout only: the number stays where the user put it, so widening the panel brings the board
-// they asked for back without them having to pick it again.
-check(!reorderSource.contains("settings.sessionsColumns ="),
-      "nothing on the board writes the remembered count back")
+check(reorderSource.contains("PanelGeometry.boardColumns(chosen: nil"),
+      "the grid lays the board out on auto alone")
 // AUTO'S COUNT IS TAKEN WHEN THE PAGE IS OPENED, not read live off the roster: the scan runs twice
 // a second, and a board that re-flowed as sessions came and went would move under the reader.
 // Counted over the SEATS rather than over the sessions, which is what the board now lays out:
@@ -371,89 +349,33 @@ for panel in panels {
     }
 }
 
-print("a remembered count comes back into the range still on offer")
-check(PanelGeometry.storedColumns(0, max: maxSessionsColumns) == 0, "nothing stored is auto")
-check(PanelGeometry.storedColumns(-3, max: maxSessionsColumns) == 0, "and so is a nonsense count")
-check(PanelGeometry.storedColumns(1, max: maxSessionsColumns) == 1, "a count on offer is kept")
-check(PanelGeometry.storedColumns(4, max: maxSessionsColumns) == 4, "…including the highest one")
-// THE RANGE ONLY OPENED UPWARD, so every count anybody has stored means what it always meant: this
-// is the whole of the migration the ceiling moving from two to four needs.
-check(PanelGeometry.storedColumns(2, max: maxSessionsColumns) == 2,
-      "a two remembered under the old ceiling still comes back as two")
-check(PanelGeometry.storedColumns(6, max: maxSessionsColumns) == 4,
-      "a count past the last tile comes back to that tile, not to auto")
-check(PanelGeometry.storedColumns(4, max: 3) == 3,
-      "the same rule the compact list is read back through")
-// AND ALL THREE COUNTS ARE READ BACK THROUGH IT, which is a source reading because the store is an
-// app-target file this harness does not compile. The cards' own count was the last one spelling the
-// range by hand (`(1 ... 4).contains(...)`), where a stored count past the ladder fell back to auto
-// rather than to the widest tile - one initializer answering the same question two ways.
-check(storeSource.contains(
-          "panelColumns = PanelGeometry.storedColumns(defaults.integer(forKey: \"panelColumns\")")
-          && storeSource.contains("listColumns = PanelGeometry.storedColumns(")
-          && storeSource.contains("sessionsColumns = PanelGeometry.storedColumns("),
-      "every remembered column count is read back through the one clamping rule")
-check(!storeSource.contains("(1 ... 4).contains(defaults.integer(forKey: \"panelColumns\"))"),
-      "…the cards' count included, rather than spelling its own range")
-
-print("the picker offers the promise the board can keep")
-// A TILE THAT CANNOT BE SEATED IS STILL SELECTABLE, and what changes instead is what the tiles are
-// CALLED: "up to 2 columns" is true in every width, where "2 columns" is the control lying about
-// the page in any panel that seats one (Albert, 2026-08-15, still live in the narrow direction
-// until now). The preference is kept either way, so widening the panel brings it back by itself.
-let pickerSource = (try? String(contentsOfFile: "Tally/Views/LayoutColumnPicker.swift",
-                                encoding: .utf8)) ?? ""
+print("the panel offers no layout choice")
+// B-4059: the panel is always the Detailed one with an automatic column count, so neither surface
+// has a density or column control and the catalogue carries none of their words.
 let footerSource = (try? String(contentsOfFile: "Tally/Views/PopoverFooterView.swift",
                                 encoding: .utf8)) ?? ""
 let settingsPaneSource = (try? String(contentsOfFile: "Tally/Views/SettingsDisplayPane.swift",
                                       encoding: .utf8)) ?? ""
-check(!pickerSource.isEmpty && !footerSource.isEmpty && !settingsPaneSource.isEmpty,
-      "the picker and both surfaces that show it are readable from this suite")
-check(pickerSource.contains("var atMost: Bool = false"),
-      "the picker knows whether a number here is a maximum")
-check(pickerSource.contains(#"return atMost ? L("Up to one column") : L("One column")"#)
-        && pickerSource.contains(#"String(localized: "Up to \(option) columns""#),
-      "…and says so in the words each tile is described in")
-check(pickerSource.contains("var maxColumns: Int = 4") && !pickerSource.contains("disabled("),
-      "…while every tile it offers stays selectable")
-// BOTH SESSIONS SURFACES SPEAK IT, which is the rule the picker exists for: one control, so the
-// panel and the Settings pane cannot describe the same setting two ways.
-/// What a call site passes, read as the 200 characters after the binding it edits: a file-wide
-/// `contains("atMost")` would be green off any other call in the same file.
-func callSite(_ source: String, editing binding: String) -> String {
-    String((source.components(separatedBy: binding).dropFirst().first ?? "").prefix(200))
+check(!footerSource.isEmpty && !settingsPaneSource.isEmpty, "both surfaces are readable from this suite")
+for (name, source) in [("the panel's view options", footerSource), ("the Settings pane", settingsPaneSource)] {
+    check(!source.contains("LayoutColumnPicker") && !source.contains("$settings.panelDensity")
+            && !source.contains(#"L("Layout")"#),
+          "\(name) has no layout or column control")
 }
-for (name, source) in [("the panel's view options", footerSource),
-                       ("the Settings pane", settingsPaneSource)] {
-    check(callSite(source, editing: "$settings.sessionsColumns").contains("atMost: true"),
-          "\(name) offers the sessions count as a maximum")
-}
-// …and the account pages' own count is NOT a maximum: it decides the panel's width, so it is always
-// kept exactly, and describing it as "up to" would be the mirror-image lie.
-for (name, source) in [("the panel's view options", footerSource),
-                       ("the Settings pane", settingsPaneSource)] {
-    check(!callSite(source, editing: "$settings.densityColumns").contains("atMost"),
-          "\(name) still offers the account count as the exact number it keeps")
-}
-// THE SENTENCE THAT ANSWERS "WHY DID MY 2 LAY OUT 1", standing on the card rather than waiting in a
-// callout nobody hovers.
-let standingLine = "Panel width follows the Usage pages. Auto takes the columns that fit when the "
-    + "board is opened, and a number is the most it will use."
-check(footerSource.contains(standingLine),
-      "the sessions layout section explains what the panel's width follows")
-// EVERY WORD OF IT IS IN THE CATALOGUE, in all four translations: the app ships five languages, and
-// a sentence that reaches somebody in English on a Japanese machine is a missing translation
-// nobody notices until they see it.
-let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
-    "Tally/Resources/Localizable.xcstrings")))
+check(!FileManager.default.fileExists(atPath: "Tally/Views/LayoutColumnPicker.swift"),
+      "the column picker view is gone")
+check(!storeSource.contains("var panelColumns") && !storeSource.contains("var listColumns")
+        && !storeSource.contains("var sessionsColumns") && !storeSource.contains("var densityColumns"),
+      "the store keeps no column count")
+let catalogue = (try? Data(contentsOf: URL(fileURLWithPath: "Tally/Resources/Localizable.xcstrings")))
     .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
 let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
 check(!catalogueStrings.isEmpty, "the string catalogue is readable from this suite")
-for word in ["Up to one column", "Up to %lld columns", standingLine] {
-    let entry = catalogueStrings[word] as? [String: Any]
-    let localizations = entry?["localizations"] as? [String: Any] ?? [:]
-    check(["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { localizations[$0] != nil },
-          "\(word.prefix(28)) is translated into every language Tally ships")
+for word in ["Panel density", "Panel columns", "Sessions columns", "Layout", "Compact", "Detailed", "Auto",
+             "Columns chosen automatically", "One column", "Up to one column", "%lld columns",
+             "Up to %lld columns", "Panel width follows the Usage pages. Auto takes the columns that fit when "
+                 + "the board is opened, and a number is the most it will use."] {
+    check(catalogueStrings[word] == nil, "\"\(word.prefix(28))\" is no longer in the string catalogue")
 }
 
 print("the panel fits the display it opens on")

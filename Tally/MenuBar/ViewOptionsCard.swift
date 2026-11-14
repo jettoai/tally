@@ -66,8 +66,8 @@ final class ViewOptionsCard {
     ///
     /// - Parameter content: built fresh here rather than handed a rendered view, and evaluated
     ///   inside a body (`CardBody`) rather than at the call: the card's own controls change what the
-    ///   card shows (the density switch changes how many column tiles there are, the gauge switch
-    ///   greys the rows under it), and only reads made during a body pass are observed.
+    ///   card shows (the gauge switch greys the rows under it), and only reads made during a body
+    ///   pass are observed.
     func present(host: SurfaceHost, anchor: ViewOptionsAnchor,
                  content: @escaping () -> AnyView, onDismiss: @escaping () -> Void) {
         dismiss()
@@ -230,8 +230,8 @@ final class ViewOptionsCardPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// THE BOTTOM EDGE IS WHAT STAYS when the card's own content changes size - switching density
-    /// changes how many column tiles the picker offers - so the card grows UPWARD, away from the
+    /// THE BOTTOM EDGE IS WHAT STAYS when the card's own content changes size, so the card grows
+    /// UPWARD, away from the
     /// button it stands on and away from the pointer that is on it. AppKit's own answer is the
     /// opposite (a constraint-driven resize holds the top left, measured on the pick panel,
     /// 2026-08-11), which would push the card down over the control that opened it.

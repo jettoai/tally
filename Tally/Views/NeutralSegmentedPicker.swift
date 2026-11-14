@@ -217,8 +217,8 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Selection draws the chip, hover only hints at one - the same two-tier fill the layout tiles use,
-    /// so the panel's two hand-rolled pickers answer a pointer the same way.
+    /// Selection draws the chip, hover only hints at one - the same two-tier fill the other
+    /// hand-rolled pickers use, so they answer a pointer the same way.
     private func fillColor(_ option: Value, selected: Bool) -> Color {
         if selected { return PanelStyle.segOn }
         return hovered == option ? Color.primary.opacity(0.07) : .clear

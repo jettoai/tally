@@ -190,10 +190,10 @@ check("T13 tag no longer lists every window", !rowBody.contains("ladderLine"))
 check("T13 row splits through windowFigures", advisor.contains("AdvisorConclusion.windowFigures("))
 check("T13 hover ladder is per plan", advisor.contains("ladderLines(reading)"))
 
-// T20: the panel meets a fresh install with the list, and the advisor window is remembered.
+// T20: the panel is always the list (B-4059, no stored density is read), and the advisor window is remembered.
 let settingsSource = source("Tally/Stores/SettingsStore.swift")
-check("T20 density defaults to list", settingsSource.contains("?? \"\") ?? .list")
-    && !settingsSource.contains("?? \"\") ?? .cards"))
+check("T20 density is fixed to list", settingsSource.contains("var panelDensity: PanelDensity { .list }")
+    && !settingsSource.contains("forKey: \"panelDensity\""))
 check("T20 advisor window persisted", settingsSource.contains("forKey: \"advisorWindowDays\""))
 
 // T21: the hover's strings exist in every shipped language (B-1570: one row per figure).

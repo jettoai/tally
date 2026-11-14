@@ -201,77 +201,15 @@ final class SettingsStore {
         }
     }
 
-    /// Panel card columns: 0 = auto (1 column single-account, 2 once any provider has siblings),
-    /// or an explicit 2 / 3 / 4 for people with many accounts and the screen to spread them.
-    var panelColumns: Int {
-        didSet { UserDefaults.standard.set(panelColumns, forKey: "panelColumns") }
-    }
-
-    /// Cards or the compact one-row-per-account list (see `PanelDensity`). The list by default: a
-    /// fleet of several accounts reads on one screen without scrolling, and the cards are one click
-    /// away in the footer. A stored choice is kept as it is; only an unset one lands on the list.
-    var panelDensity: PanelDensity {
-        didSet { UserDefaults.standard.set(panelDensity.rawValue, forKey: "panelDensity") }
-    }
+    /// Fixed to the Detailed panel (B-4059): the panel no longer offers a density. Still a read, so
+    /// every view that branches on it, the private overlay's included, keeps compiling unchanged; the
+    /// `panelDensity` key an older build stored is simply never read again.
+    var panelDensity: PanelDensity { .list }
 
     /// How the pinned panel is drawn (see `PinnedStyle`). Full by default, so nobody's pinned panel
     /// changes until they pick a strip.
     var pinnedStyle: PinnedStyle {
         didSet { UserDefaults.standard.set(pinnedStyle.rawValue, forKey: "pinnedStyle") }
-    }
-
-    /// The compact list's own column count, same vocabulary as `panelColumns` (0 = auto, 1...4 an
-    /// explicit width). Its OWN setting rather than a shared one, because a comfortable number of
-    /// 263pt cards is not a comfortable number of rows nearly twice that wide: sharing it would have
-    /// each density silently rewrite the other's layout every time the user switched.
-    var listColumns: Int {
-        didSet { UserDefaults.standard.set(listColumns, forKey: "listColumns") }
-    }
-
-    /// The highest explicit column count the compact list offers. Three, where the cards offer four:
-    /// a row is nearly twice a card's width (Albert's call, 2026-08-04).
-    static let maxListColumns = 3
-
-    /// The session board's own column count, in the same vocabulary again (0 = auto, 1...
-    /// `maxSessionsColumns` an explicit width). A THIRD remembered number, and the reason is the one
-    /// the list already gave for being the second: the Sessions page is a different page, read for a
-    /// different question, and a count chosen for a fleet of account cards is not a count anybody
-    /// asked the board for. Sharing one meant the board laid itself out to whatever the density
-    /// picker was last edited to, so a board read one card at a time could not be said at all while
-    /// the accounts were in two columns (Albert, 2026-08-17).
-    ///
-    /// It is spent on the CARDS, not on the window: the board lays out at most this many columns
-    /// inside the surface the account pages sized, because a width that followed the page resized
-    /// the surface on every tab switch (`PopoverRootView.popoverWidth`). A count the surface cannot
-    /// seat steps down to the one it can.
-    var sessionsColumns: Int {
-        didSet { UserDefaults.standard.set(sessionsColumns, forKey: "sessionsColumns") }
-    }
-
-    /// The highest explicit count the session board offers, which is the account cards' four.
-    ///
-    /// It was two, on the reasoning that a third column of session cards would need a panel wider
-    /// than that page has anything to say in - true only while a session card was frozen at the
-    /// account ladder's width and the board could not use the room it was given. The cards divide
-    /// up the surface now, so a 1108pt panel reads four session columns as comfortably as it reads
-    /// four account ones, and auto was already using every column that fits while an explicit choice
-    /// stopped at two: a ceiling the page itself did not have (Albert, 2026-08-18).
-    ///
-    /// Nothing stored has to move: 0, 1 and 2 mean what they always meant, and the range only opens
-    /// upward (`PanelGeometry.storedColumns`).
-    static let maxSessionsColumns = 4
-
-    /// The highest count the picker offers for the density on screen, so the two surfaces that show
-    /// that picker cannot disagree about where the tiles stop.
-    var densityMaxColumns: Int { panelDensity == .list ? Self.maxListColumns : 4 }
-
-    /// The column count the panel's picker edits: whichever density is on screen owns it. One
-    /// control on both surfaces, two remembered numbers behind it.
-    var densityColumns: Int {
-        get { panelDensity == .list ? listColumns : panelColumns }
-        set {
-            if panelDensity == .list { listColumns = newValue } else { panelColumns = newValue }
-        }
     }
 
     var isPanelTranslucent: Bool {
@@ -353,20 +291,7 @@ final class SettingsStore {
         defaults.set(hostAlerts, forKey: HostHealthLogic.alertEnabledKey)
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
-        // ALL THREE REMEMBERED COUNTS COME BACK THROUGH THE ONE RULE
-        // (`PanelGeometry.storedColumns`): clamped into the range the picker still offers, and
-        // anything that is not a count at all read as auto. A stored number past the highest tile
-        // has to come back to that tile rather than to a count nothing can select - the compact
-        // list used to go up to four - and the cards' own count was the last one still spelling
-        // that rule by hand, which made a four-column machine that had once seen a wider ladder
-        // land on auto where its neighbours landed on the widest tile.
-        panelColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "panelColumns"), max: 4)
-        panelDensity = PanelDensity(rawValue: defaults.string(forKey: "panelDensity") ?? "") ?? .list
         pinnedStyle = PinnedStyle(rawValue: defaults.string(forKey: "pinnedStyle") ?? "") ?? .full
-        listColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "listColumns"),
-                                                  max: SettingsStore.maxListColumns)
-        sessionsColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "sessionsColumns"),
-                                                      max: SettingsStore.maxSessionsColumns)
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         groupByProvider = defaults.object(forKey: "groupByProvider") as? Bool ?? true
         gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .all

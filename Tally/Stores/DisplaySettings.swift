@@ -39,11 +39,10 @@ enum MenuBarLayout: String, Sendable, CaseIterable {
     case pooled
 }
 
-/// How much room each account gets on the panel. `list` (default) collapses each account to a
-/// single row, meters inline, so a fleet of several accounts fits the screen. `cards` is the full
-/// card: identity, the headline meter prominent, every other window under it, the reset context
-/// lines. It is a density, not a different set of facts: every control a card carries is on the
-/// row too, shrunk to an icon. Persisted in `SettingsStore`.
+/// How much room each account gets on the panel. The panel is always `list` (B-4059): each account
+/// collapses to a single row, meters inline, so a fleet of several accounts fits the screen. `cards`
+/// is kept only for the card code path still in the tree: the full card, with identity, the
+/// headline meter prominent, every other window under it, the reset context lines.
 enum PanelDensity: String, Sendable, CaseIterable {
     case cards
     case list

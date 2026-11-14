@@ -72,19 +72,14 @@ extension PopoverRootView {
     /// words and its own line saying what it waits for - not its width, and now not its position
     /// either once somebody has arranged the board by hand.
     ///
-    /// WHAT THE COLUMN PICKER SAYS IS WHAT THIS BOARD LAYS OUT, and it used to be adaptive
-    /// regardless: a picker reading "1" opened a panel one column wide and this grid quietly seated
-    /// two 210pt cards in it, the control saying one thing and the page doing another (Albert,
-    /// 2026-08-15).
-    ///
-    /// A COUNT IS A PROMISE ABOUT THE READING, NEVER ABOUT THE WINDOW. The count is the board's own
-    /// (`sessionsColumnChoice`) and it is spent here, on how many columns the cards are read in and
-    /// how wide they are laid out: at most that many columns, dividing up the room the surface gives
-    /// them, held against the leading edge (`sessionsBoardWidth`). The surface itself is the same on
-    /// all three pages, because a width that followed the page resized the window on every tab
-    /// switch (see `PopoverRootView.popoverWidth`), so a count the width cannot seat steps down to
-    /// what fits (`PanelGeometry.boardColumns`) - a card never goes below the width the whole board's
-    /// column arithmetic is built on (`compactCardWidth`), nor past the width a line stops being
+    /// THE COLUMN COUNT IS AUTO ONLY (B-4059): there is no picker for it any more. The count is
+    /// spent here, on how many columns the cards are read in and how wide they are laid out: as
+    /// many as the board was opened with cards, dividing up the room the surface gives them, held
+    /// against the leading edge (`sessionsBoardWidth`). The surface itself is the same on all three
+    /// pages, because a width that followed the page resized the window on every tab switch (see
+    /// `PopoverRootView.popoverWidth`), so a count the width cannot seat steps down to what fits
+    /// (`PanelGeometry.boardColumns`) - a card never goes below the width the whole board's column
+    /// arithmetic is built on (`compactCardWidth`), nor past the width a line stops being
     /// comfortable to read at (`sessionCardCap`).
     ///
     /// Cells align to the TOP, so a card whose identity line is missing sits under its neighbours'
@@ -267,21 +262,6 @@ extension PopoverRootView {
     /// column down is measured against the gap it will actually be laid out with.
     static let sessionCardGap: CGFloat = 8
 
-    /// What this page was asked for: an explicit count, or nil where nobody has picked one.
-    ///
-    /// THE BOARD'S OWN SETTING (`SettingsStore.sessionsColumns`), not the account pages'. It used to
-    /// read whichever count the density picker was editing, which made one number serve two pages
-    /// that are read for different questions - a board sorted into two columns while the accounts
-    /// were read one per row could not be said at all (Albert, 2026-08-17).
-    ///
-    /// Read here rather than inside the grid so that the count and the width the cards are laid out
-    /// at answer to one reading of the setting: a board laying out two cards in a run sized for one
-    /// is the exact defect this pair exists to prevent.
-    var sessionsColumnChoice: Int? {
-        (1 ... SettingsStore.maxSessionsColumns).contains(settings.sessionsColumns)
-            ? settings.sessionsColumns : nil
-    }
-
     /// HOW WIDE THE BOARD ITSELF IS LAID OUT: its columns of cards and the gutters between them,
     /// where each card has taken its share of the room the surface offers, up to the width a line
     /// stops being comfortable to read at (`sessionCardCap`).
@@ -316,7 +296,7 @@ extension PopoverRootView {
     /// opened with, held in `sessionsAutoColumns` until the page is opened again, so the answer is
     /// the same for the whole of one reading.
     func sessionColumnCount(cards: Int) -> Int {
-        PanelGeometry.boardColumns(chosen: sessionsColumnChoice,
+        PanelGeometry.boardColumns(chosen: nil,
                                    cards: sessionsAutoColumns ?? cards,
                                    in: sessionsGridWidth,
                                    minimum: Self.compactCardWidth,

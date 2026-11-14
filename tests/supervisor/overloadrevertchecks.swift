@@ -258,7 +258,8 @@ func runOverloadRevertChecks() {
     // B-4551 step 5, as source locks (the repo's way to say "this code reads that and nothing else").
     // I6: the code that decides on a model gap does not read the raw signals the attribution is made
     // of. Comment lines are dropped, so prose may still name them.
-    let rawSignals = ["lastOverloadFallback", "drift.isActive", "lastModelCommandAt", "modelConfirmation"]
+    let rawSignals = ["lastOverloadFallback", "drift.isActive", "lastModelCommandAt", "modelConfirmation",
+                      "lastFlag"]
     func codeLines(_ text: String) -> String {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
@@ -271,21 +272,50 @@ func runOverloadRevertChecks() {
               let text = code(of: file)
               return !text.isEmpty && !rawSignals.contains { text.contains($0) }
           })
-    // The whole population: who reads the raw signals. The six files are the watcher, the drift
-    // monitor and the attribution; the other two are the places the tick FEEDS the attribution from
-    // the watcher (Supervisor.swift) and the adoption of a person's `/model` (SessionModel.swift),
-    // both of which predate this step. A ninth reader is what this stops.
+    // The whole population: who reads the raw signals. These are the watcher, the drift monitor, the
+    // attribution and the safeguard restore (which still reads the flag itself, B-4551 step 6 P3).
+    // The supervisor is held to a narrower rule below: only where it FEEDS the attribution.
     let allowedReaders: Set<String> = ["TranscriptWatcher.swift", "TranscriptWatcherScan.swift",
                                        "TranscriptFork.swift", "DriftMonitor.swift", "SafeguardDrift.swift",
-                                       "ModelGapAttribution.swift", "SessionModel.swift", "Supervisor.swift"]
+                                       "ModelGapAttribution.swift"]
     let swiftFiles = ((try? FileManager.default.contentsOfDirectory(atPath: "TallyCLI")) ?? [])
         .filter { $0.hasSuffix(".swift") }
     let readers = Set(swiftFiles.filter { file in
         let text = code(of: file)
-        return rawSignals.contains { text.contains($0) }
+        return file != "Supervisor.swift" && rawSignals.contains { text.contains($0) }
     })
     check("I6: the files that read the raw signals are the known ones", swiftFiles.count > 50
           && readers.isSubset(of: allowedReaders))
+    // The supervisor reads them in ONE stretch: from the drift observation to the end of the
+    // `tickModelGap` call, which is the station that feeds the attribution. Outside it the count is zero.
+    let supervisorCode = codeLines(supervisorText)
+    let feeding: (inside: String, outside: String)? = {
+        guard let start = supervisorCode.range(of: "observeDrift("),
+              let tick = supervisorCode.range(of: "let gap = tickModelGap(",
+                                              range: start.upperBound ..< supervisorCode.endIndex),
+              let end = supervisorCode.range(of: "writeLog:", range: tick.upperBound ..< supervisorCode.endIndex)
+        else { return nil }
+        return (String(supervisorCode[start.lowerBound ..< end.upperBound]),
+                String(supervisorCode[supervisorCode.startIndex ..< start.lowerBound])
+                    + String(supervisorCode[end.upperBound...]))
+    }()
+    check("I6: the supervisor reads the raw signals only where it feeds the attribution",
+          feeding.map { stretch in
+              stretch.inside.contains("lastModelCommandAt") && stretch.inside.contains("drift.isActive")
+                  && !rawSignals.contains { stretch.outside.contains($0) }
+          } == true)
+    // The adoption of a person's `/model` reads the tick's attribution, and is handed it.
+    let adoptionCode = String(code(of: "SessionModel.swift").split(separator: "\n", omittingEmptySubsequences: false)
+        .drop { !$0.contains("func adoptNativeModelChoice(") }.joined(separator: "\n").prefix(5000))
+    check("I6: the adoption asks the gap whose command it is, not the watcher",
+          adoptionCode.contains("gap.owner == .adoption") && !adoptionCode.contains("modelCommandCause(")
+              && !adoptionCode.contains("watcher.modelConfirmation"))
+    check("I6: the tick hands the directives its gap", {
+        guard let start = supervisorText.range(of: "applySessionDirectives(plan:"),
+              let end = supervisorText.range(of: "heldElsewhere:", range: start.upperBound ..< supervisorText.endIndex)
+        else { return false }
+        return supervisorText[start.upperBound ..< end.lowerBound].contains("gap: gap")
+    }())
     // I2: the line typed into the composer is the capacity cause's own evidence, decided from the gap.
     let revertCall: String = {
         guard let start = supervisorText.range(of: "applyOverloadRevert("),
@@ -296,8 +326,10 @@ func runOverloadRevertChecks() {
     let decisionCode = code(of: "OverloadRevert.swift")
     check("I2: the switch back is handed the tick's gap, and the ledger, and nothing off the watcher",
           revertCall.contains("gap: gap") && revertCall.contains("ledger: &sessionModelState.gap")
-              && !rawSignals.filter { $0 != "lastModelCommandAt" }.contains { revertCall.contains($0) }
+              && !rawSignals.contains { revertCall.contains($0) } && !revertCall.contains("watcher")
               && !revertCall.contains("effectivePrimary") && !revertCall.contains("actualModel"))
+    check("I6: whether our typed line landed is read off the ledger's claim, not the watcher's record",
+          decisionCode.contains("ledger.ownClaimedAt") && !decisionCode.contains("modelCommandArgsMatch"))
     check("I2: the decision acts on a capacity cause and its owner, with no trigger or model gate of its own",
           decisionCode.contains("guard case let .capacity(key, _) = input.gap.cause")
               && decisionCode.contains("input.gap.owner == .overloadRevert")
@@ -351,8 +383,7 @@ func runOverloadRevertChecks() {
                                  safeguardActive: drift),
             ledger: ledger, quotaEvidence: { false }, now: at)
         return applyOverloadRevert(&state, ledger: &ledger, pid: "4242", gap: gap, providerID: "claude",
-                            modelCommandAt: command, modelCommandArgs: args, mode: mode,
-                            hookInstalled: hook,
+                            mode: mode, hookInstalled: hook,
                             typedAlready: false, session: .idle, quiet: .quiet, turnEnded: { true },
                             keyboardIdle: true, relaunchPlanned: false, draftSuspected: false,
                             waitingOnPerson: dialog, now: at, log: log,
@@ -501,6 +532,31 @@ func runOverloadRevertChecks() {
                                  primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
                                  now: launch.addingTimeInterval(705), log: testAuditLog)
               && theirs.pin.model == "claude-opus-5-5")
+    // The adoption obeys the gap it is handed, not the watcher: the same confirmed record of a person's
+    // is adopted under an attribution that gives it to the adoption, and left alone under any other.
+    let handed = attributeModelGap(declared: "sonnet", source: .app, executing: "sonnet",
+                                   facts: ModelGapFacts(watcher: personRecords, driftActive: false),
+                                   ledger: ModelGapLedger(), quotaEvidence: { false },
+                                   now: launch.addingTimeInterval(705))
+    check("the fixture: the tick's attribution of that record is the adoption's, with the confirming stamp",
+          handed.owner == .adoption && handed.confirmedAt != nil
+              && handed.confirmedAt == personRecords.modelConfirmation?.at)
+    func adoptedUnder(_ gap: ModelGapAttribution) -> Bool {
+        var state = SessionModelState(sessionKey: "4246")
+        var follow = FollowState(launchArgs: ["--model", "sonnet"])
+        return adoptNativeModelChoice(state: &state, follow: &follow, watcher: personRecords, gap: gap,
+                                      primaryModel: "sonnet", launchArgs: ["--model", "sonnet"],
+                                      now: launch.addingTimeInterval(705), log: testAuditLog)
+    }
+    check("control: handed that attribution the adoption pins it", adoptedUnder(handed))
+    check("a person's /model the gap gives to somebody else is not adopted",
+          !adoptedUnder(ModelGapAttribution(declared: handed.declared, declaredSource: handed.declaredSource,
+                                            executing: handed.executing, observed: handed.observed,
+                                            cause: handed.cause, owner: .nobody,
+                                            confirmedAt: handed.confirmedAt)))
+    check("…and neither is one the gap does not see at all, whatever the watcher holds",
+          !adoptedUnder(ModelGapAttribution(declared: "sonnet", declaredSource: .app, executing: "sonnet",
+                                            observed: nil, cause: .none, owner: .nobody)))
     var elsewhere = OverloadRevertState(); var elsewhereLedger = ModelGapLedger(); var elsewhereTyped: [String] = []
     _ = tick(&elsewhere, ledger: &elsewhereLedger, typed: &elsewhereTyped)
     _ = tick(&elsewhere, ledger: &elsewhereLedger, command: now.addingTimeInterval(30), at: now.addingTimeInterval(31),

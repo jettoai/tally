@@ -790,7 +790,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                    account: account, providerID: provider.id,
                                    launchArgs: launchArgs, primaryModel: &effectivePrimary,
                                    quarantine: quarantine, reserves: reserves,
-                                   watcher: &watcher,
+                                   watcher: &watcher, gap: gap,
                                    childAge: Date().timeIntervalSince(launchedAt),
                                    keyboardIdle: { keyboard.idle($0) },
                                    heldElsewhere: { conversationHolders(in: cwd, excluding: supervisorPID)[$0] })
@@ -1304,9 +1304,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // after the restart wake, before the advisory knocks, the same door and the same gates.
             let reverted = applyOverloadRevert(
                 &overloadRevert, ledger: &sessionModelState.gap, pid: supervisorPID, gap: gap,
-                providerID: provider.id, modelCommandAt: watcher.lastModelCommandAt,
-                modelCommandArgs: watcher.lastModelCommandArgs, mode: overloadRevertMode,
-                hookInstalled: preModelSwitchHook,
+                providerID: provider.id, mode: overloadRevertMode, hookInstalled: preModelSwitchHook,
                 typedAlready: action.typed != nil || resetTyped != nil || resumed != nil
                     || woke != nil || reserveHeld,
                 session: board.state, quiet: board.quiet, turnEnded: turnOver,

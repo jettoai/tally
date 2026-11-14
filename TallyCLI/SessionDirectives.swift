@@ -61,7 +61,8 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                             primaryModel: inout String?,
                             quarantine: [String: (model: String?, until: Date)],
                             reserves: AccountReserves = .none,
-                            watcher: inout TranscriptWatcher, childAge: TimeInterval,
+                            watcher: inout TranscriptWatcher, gap: ModelGapAttribution,
+                            childAge: TimeInterval,
                             keyboardIdle: (TimeInterval) -> Bool,
                             modelRequest: (String) -> ModelRequest? = {
                                 readModelRequest(sessionKey: $0)
@@ -76,7 +77,7 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
     // including the degradation rescue one call further down the tick - has to be judged against
     // that rather than against the command line the session was launched with. It plans no
     // relaunch, so it cannot compete with the two below for the tick's one restart.
-    adoptNativeModelChoice(state: &model, follow: &follow, watcher: watcher,
+    adoptNativeModelChoice(state: &model, follow: &follow, watcher: watcher, gap: gap,
                            primaryModel: primaryModel, launchArgs: launchArgs, log: log)
     // The notice it leaves is NEWS on the status line rather than a line on the terminal (that
     // adoption is the one model-axis event with no relaunch behind it), so something that runs every

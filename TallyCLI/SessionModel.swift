@@ -63,13 +63,14 @@ func sessionPrimaryModel(pin: SessionModelPin, launchArgs: [String], providerID:
 /// pinned this way is released the way every other pin is, with `tally model auto`.
 @discardableResult
 func adoptNativeModelChoice(state: inout SessionModelState, follow: inout FollowState,
-                            watcher: TranscriptWatcher, primaryModel: String?,
-                            launchArgs: [String], now: Date = Date(),
+                            watcher: TranscriptWatcher, gap: ModelGapAttribution,
+                            primaryModel: String?, launchArgs: [String], now: Date = Date(),
                             log: URL = handoffLog) -> Bool {
-    // WHOSE COMMAND IT IS is not asked here: `modelCommandCause` answers it from the ledger, the
-    // same function the tick's attribution reads (ModelGapAttribution.swift). A record is a person's
-    // only while nobody has spent it, and ours are spent by `claimOwnCommand` before the tick gets
-    // here - which is the whole of what the old claim in the supervisor loop did.
+    // WHOSE COMMAND IT IS is not asked here: the tick's attribution answers it (`gap`, from
+    // `modelCommandCause`, ModelGapAttribution.swift), and this reads that answer rather than asking
+    // the watcher a second time. A record is a person's only while nobody has spent it, and ours are
+    // spent by `claimOwnCommand` before the tick gets here. `confirmedAt` is the confirming reply's
+    // stamp, carried by the same attribution.
     //
     // ONE EVENT, ONE ADOPTION. The stamp lives as long as the child, so without it the condition
     // stays true for every later disagreement - a real quota fallback included, which would then be
@@ -94,10 +95,9 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
           // `settlePendingConfirmation`, only from a candidate the position check admitted, and both
           // are cleared by a newer `/model` and by a move to another file - so a confirmation in
           // hand always belongs to the command in hand.
-          let confirmation = watcher.modelConfirmation,
-          case let .personCommand(commandAt, settled?) = modelCommandCause(
-              commandAt: watcher.lastModelCommandAt, confirmation: confirmation.model,
-              ledger: state.gap, now: now)
+          gap.owner == .adoption,
+          case let .personCommand(commandAt, settled?) = gap.cause,
+          let observedAt = gap.confirmedAt
     else { return false }
     // CONSUMED HERE, BEFORE ANYTHING IS JUDGED. "The event has been served" and "the service
     // changed something" are two questions, and the stamp belongs to the first: a `/model` that
@@ -130,7 +130,6 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     // destroyed by pinning the fallback instead. A third model later in the same chunk changes
     // nothing here: it is not the reply to that prompt, so it is never the confirmation.
     let observed = settled
-    let observedAt = confirmation.at
     let movedModel = !modelsAgree(primaryModel, observed) && !modelsAgree(state.pin.model, observed)
     let chosenEffort = watcher.lastModelCommandEffort
     let runningEffort = state.pin.effort ?? flagValue(launchArgs, "--effort")

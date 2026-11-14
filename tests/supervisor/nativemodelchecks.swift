@@ -1021,13 +1021,16 @@ func runNativeModelChecks() {
     var tickPolicy = LaunchPolicy()
     var tickPrimary: String? = "fable"
     var tickWatcher = typed
+    let tickGap = attributeModelGap(declared: "fable", source: .app, executing: "fable",
+                                    facts: ModelGapFacts(watcher: typed, driftActive: false),
+                                    ledger: replanState.gap, quotaEvidence: { false }, now: Date())
     applySessionDirectives(plan: &plan, moves: &moves, switchRecord: &switchRecord,
                            model: &replanState, modelRecord: &modelRecord,
                            follow: &replanFollow, following: false, policy: &tickPolicy,
                            steering: true,
                            account: switchAccount("A"), providerID: "claude",
                            launchArgs: ["--model", "fable"], primaryModel: &tickPrimary,
-                           quarantine: [:], watcher: &tickWatcher, childAge: 600,
+                           quarantine: [:], watcher: &tickWatcher, gap: tickGap, childAge: 600,
                            keyboardIdle: { _ in true }, modelRequest: { _ in nil },
                            switchRequest: { _ in nil }, log: testAuditLog)
     check("the tick adopts the choice", replanState.pin.model == "claude-opus-4-8")

@@ -97,6 +97,8 @@ struct ModelGapAttribution: Equatable {
     let observed: String?
     let cause: GapCause
     let owner: GapOwner
+    /// When the reply that answered a person's `/model` was written (`watcher.modelConfirmation.at`).
+    var confirmedAt: Date? = nil
     var since: Date? { cause.since }
 }
 
@@ -108,14 +110,16 @@ struct ModelGapFacts: Equatable {
     var commandAt: Date?
     /// The model of the reply that answered that command (`watcher.modelConfirmation`).
     var confirmation: String?
+    var confirmationAt: Date?
     var overload: OverloadFallbackEvent?
     var safeguardActive = false
     var safeguardKey: String?
 
     init(observed: String? = nil, commandAt: Date? = nil, confirmation: String? = nil,
          overload: OverloadFallbackEvent? = nil, safeguardActive: Bool = false,
-         safeguardKey: String? = nil) {
+         safeguardKey: String? = nil, confirmationAt: Date? = nil) {
         self.observed = observed
+        self.confirmationAt = confirmationAt
         self.commandAt = commandAt
         self.confirmation = confirmation
         self.overload = overload
@@ -127,7 +131,8 @@ struct ModelGapFacts: Equatable {
         self.init(observed: watcher.lastModel, commandAt: watcher.lastModelCommandAt,
                   confirmation: watcher.modelConfirmation?.model, overload: watcher.lastOverloadFallback,
                   safeguardActive: driftActive,
-                  safeguardKey: watcher.lastFlag.map { $0.uuid ?? ISO8601DateFormatter().string(from: $0.at) })
+                  safeguardKey: watcher.lastFlag.map { $0.uuid ?? ISO8601DateFormatter().string(from: $0.at) },
+                  confirmationAt: watcher.modelConfirmation?.at)
     }
 }
 
@@ -382,7 +387,8 @@ func attributeModelGap(declared: String?, source: DeclarationSource, executing: 
     func result(_ cause: GapCause) -> ModelGapAttribution {
         ModelGapAttribution(declared: declared, declaredSource: source, executing: executing,
                             observed: facts.observed, cause: cause,
-                            owner: gapOwner(of: cause, handledCapacity: ledger.handledCapacityKeys))
+                            owner: gapOwner(of: cause, handledCapacity: ledger.handledCapacityKeys),
+                            confirmedAt: facts.confirmationAt)
     }
     if let command = modelCommandCause(commandAt: facts.commandAt, confirmation: facts.confirmation,
                                        ledger: ledger, now: now) {

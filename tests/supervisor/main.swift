@@ -86,6 +86,18 @@ let capacityGap = ModelGapAttribution(declared: "sonnet", declaredSource: .app, 
                                       observed: nil,
                                       cause: .capacity(eventKey: "fixture", at: launch),
                                       owner: .overloadRevert)
+/// `adoptNativeModelChoice` as the tick calls it: the gap is the attribution of this ledger and this
+/// watcher (what `tickModelGap` builds), so the cells that drive the adoption by watcher keep doing so.
+@discardableResult
+func adoptNativeModelChoice(state: inout SessionModelState, follow: inout FollowState,
+                            watcher: TranscriptWatcher, primaryModel: String?, launchArgs: [String],
+                            now: Date = Date(), log: URL = handoffLog) -> Bool {
+    let gap = attributeModelGap(declared: primaryModel, source: .app, executing: primaryModel,
+                                facts: ModelGapFacts(watcher: watcher, driftActive: false),
+                                ledger: state.gap, quotaEvidence: { false }, now: now)
+    return adoptNativeModelChoice(state: &state, follow: &follow, watcher: watcher, gap: gap,
+                                  primaryModel: primaryModel, launchArgs: launchArgs, now: now, log: log)
+}
 let iso = ISO8601DateFormatter()
 func stamp(_ offset: TimeInterval) -> String { iso.string(from: launch.addingTimeInterval(offset)) }
 

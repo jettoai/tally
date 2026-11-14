@@ -67,8 +67,7 @@ func overloadRevertLine(pid: String, outcome: String, eventKey: String, model: S
 @discardableResult
 func applyOverloadRevert(_ state: inout OverloadRevertState, ledger: inout ModelGapLedger,
                          pid: String, gap: ModelGapAttribution, providerID: String,
-                         modelCommandAt: Date?, modelCommandArgs: String?, mode: OverloadRevertMode,
-                         hookInstalled: Bool,
+                         mode: OverloadRevertMode, hookInstalled: Bool,
                          typedAlready: Bool, session: SupervisedState, quiet: SessionQuiet,
                          turnEnded: () -> Bool, keyboardIdle: Bool, relaunchPlanned: Bool,
                          draftSuspected: Bool, waitingOnPerson: Bool,
@@ -83,9 +82,9 @@ func applyOverloadRevert(_ state: inout OverloadRevertState, ledger: inout Model
     // no digit key (a keystroke nobody asked for is the thing this net must never be).
     if let typedAt = state.typedAt, let key = state.typedKey {
         // A record is OURS only when it names the model we typed: a person's `/model` inside the
-        // window is a different choice, and spending it as ours would drop it for good.
-        if let command = modelCommandAt, command > typedAt,
-           modelCommandArgsMatch(modelCommandArgs, typed: state.ownCommandModel) {
+        // window is a different choice, and spending it as ours would drop it for good. The ledger
+        // already judged that (`claimOwnCommand`, run before this in the tick), so it is read there.
+        if let command = ledger.ownClaimedAt, command > typedAt {
             state.confirmedCommandAt = command
             appendSessionInputLine(overloadRevertLine(pid: pid, outcome: "done", eventKey: key,
                                                       now: now), to: log)

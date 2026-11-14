@@ -25,9 +25,8 @@ private func overloadRevertTypable(_ model: String) -> Bool {
 func overloadRevertDecision(_ input: OverloadRevertInput, brake: OverloadRevertBrake,
                             now: Date) -> OverloadRevertDecision {
     guard input.providerID == "claude" else { return .none("codex") }
-    // The four gates that used to read the watcher (a safeguard drift, the trigger, the declared
-    // model against the event, a `/model` after the event, the model still answering) are one
-    // question now: is this tick's cause a capacity fallback, and is the switch back its owner?
+    // A safeguard drift, a `/model` after the event, a declared model other than the one the event
+    // moved off, or the original model answering again all show up as another cause or owner.
     guard case let .capacity(key, _) = input.gap.cause else { return .none(input.gap.cause.name) }
     guard input.gap.owner == .overloadRevert else { return .none("handled") }
     if let until = brake.notBefore, until > now { return .wait(until: until) }

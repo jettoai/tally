@@ -3,7 +3,8 @@ import Foundation
 // The capacity fallback (`model_fallback`, any trigger): the reading that keeps the two
 // degradation movers off it, and the safety net that types `/model` for a window left on the
 // fallback model. The net reads the tick's attribution (ModelGapAttribution.swift), so each gate's
-// counter-example below is a state the attribution reads, not a field the decision looks at. Top-level statements live in main.swift, so these run as one function it calls.
+// counter-example below is a state the attribution reads, not a field the decision looks at.
+// Top-level statements live in main.swift, so these run as one function it calls.
 
 private let overloadReal = #"""
 {"parentUuid":"6b0a53a8-7f36-4a3d-9c1a-0d2f3e4b5a69","isSidechain":false,"type":"system","subtype":"model_fallback","content":"Switched to Opus 5.5 due to high demand for Sonnet 5.5","level":"warning","trigger":"server_error","direction":"retry","originalModel":"claude-sonnet-5-5","fallbackModel":"claude-opus-5-5","requestId":"req_011Cg0000000000000000000","isMeta":false,"uuid":"c3f1a2b4-0000-4000-8000-00000000f001","timestamp":"\#(stamp(60))","userType":"external","entrypoint":"cli","cwd":"/w","sessionId":"s","version":"2.1.300"}
@@ -267,18 +268,22 @@ func runOverloadRevertChecks() {
     }
     check("I6: the switch back and the degradation movers read no raw signal",
           ["OverloadFallback.swift", "OverloadRevert.swift", "ModelDegradation.swift"].allSatisfy { file in
-              !code(of: file).isEmpty && !rawSignals.contains { code(of: file).contains($0) }
+              let text = code(of: file)
+              return !text.isEmpty && !rawSignals.contains { text.contains($0) }
           })
     // The whole population: who reads the raw signals. The six files are the watcher, the drift
     // monitor and the attribution; the other two are the places the tick FEEDS the attribution from
     // the watcher (Supervisor.swift) and the adoption of a person's `/model` (SessionModel.swift),
-    // both of which predate this step. A seventh reader is what this stops.
+    // both of which predate this step. A ninth reader is what this stops.
     let allowedReaders: Set<String> = ["TranscriptWatcher.swift", "TranscriptWatcherScan.swift",
                                        "TranscriptFork.swift", "DriftMonitor.swift", "SafeguardDrift.swift",
                                        "ModelGapAttribution.swift", "SessionModel.swift", "Supervisor.swift"]
     let swiftFiles = ((try? FileManager.default.contentsOfDirectory(atPath: "TallyCLI")) ?? [])
         .filter { $0.hasSuffix(".swift") }
-    let readers = Set(swiftFiles.filter { file in rawSignals.contains { code(of: file).contains($0) } })
+    let readers = Set(swiftFiles.filter { file in
+        let text = code(of: file)
+        return rawSignals.contains { text.contains($0) }
+    })
     check("I6: the files that read the raw signals are the known ones", swiftFiles.count > 50
           && readers.isSubset(of: allowedReaders))
     // I2: the line typed into the composer is the capacity cause's own evidence, decided from the gap.

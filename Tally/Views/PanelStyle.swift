@@ -73,7 +73,7 @@ enum PanelStyle {
     static let green = dynamic(dark: rgb(0x41D37A), light: rgb(0x1F9D54))
     static let amber = dynamic(dark: rgb(0xF5AE42), light: rgb(0xC97A0C))
     static let red = dynamic(dark: rgb(0xFF6A5F), light: rgb(0xE0443A))
-    /// The groove under a bar or a ring, the line over the column titles, the hot row's wash.
+    /// The meter groove (MeterPalette's, by way of the skin), the line over the column titles, the hot row's wash.
     static let track = skinTone { $0.track }
     static let line = skinTone { $0.colHeadLine }
     static let hotRow = skinTone { $0.hotRow }
@@ -121,34 +121,6 @@ enum PanelStyle {
         case "claude": return skinHex { $0.inkClaude }
         case "codex": return skinHex { $0.inkCodex }
         default: return ProviderBrand.panelHex(for: providerID).map { Color(nsColor: rgb($0)) } ?? ink
-        }
-    }
-
-    /// The two ends of a bar or ring in a provider's colour while healthy, amber under half left and
-    /// red under a fifth (`MetricSeverity.fromUsedPercent`, the same cut the draft's `level()` has).
-    static func brandGradient(_ providerID: String, severity: MetricSeverity) -> [Color] {
-        func pair(_ get: @escaping (PanelPalette.Skin) -> PanelPalette.Gradient) -> [Color] {
-            [skinHex { get($0).from }, skinHex { get($0).to }]
-        }
-        switch severity {
-        case .warning: return pair { $0.amber }
-        case .critical: return pair { $0.red }
-        case .normal, .unknown:
-            switch providerID {
-            case "claude": return pair { $0.claude }
-            case "codex": return pair { $0.codex }
-            default: return pair { $0.violet }
-            }
-        }
-    }
-
-    /// The severity ramp as the panel draws it: ink while healthy, then amber, then red.
-    static func tint(_ severity: MetricSeverity) -> Color {
-        switch severity {
-        case .normal: return ink
-        case .warning: return amber
-        case .critical: return red
-        case .unknown: return text3
         }
     }
 

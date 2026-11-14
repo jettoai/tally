@@ -99,11 +99,11 @@ struct MetricRowView: View {
     /// The reset reads as a countdown; hovering it adds the exact time.
     @ViewBuilder
     private var contextLine: some View {
-        if resetState != .absent || metric.severity == .critical {
+        if resetState != .absent || metric.severity.isAtOrPastCritical {
             HStack(spacing: 6) {
                 // A window that has already reset is not at its limit, whatever the held-over
                 // figure says: "Limit reached" there is exactly the line that got misread.
-                if metric.severity == .critical && !resetPassed {
+                if metric.severity.isAtOrPastCritical && !resetPassed {
                     criticalNote
                 }
                 Spacer(minLength: 0)

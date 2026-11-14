@@ -169,7 +169,7 @@ enum CaptureLaunch {
                                // (plenty, under 20%, stale, unreadable) for a capture (B-2045, Debug).
                                "TallyDemoRingStates",
                                // Qualifies TallyDemoData: four Claude fixtures whose weekly windows have
-                               // 15, 40, 70 and 100% left, one per ring colour (B-2045, Debug).
+                               // 72, 35, 12 and 0% left, one per meter state (B-2045, B-4059, Debug).
                                "TallyDemoColorLevels",
                                // Qualifies TallyStripSnapshot (demo or Dev): pins the status button to
                                // light or dark and captures the button itself (B-2045, Debug).

@@ -119,15 +119,14 @@ extension PopoverRootView {
     }
 
     /// The ring: the weekly pool's share, in the Used/Left mode the rest of the panel is in, wearing
-    /// the provider's colour while the pool is healthy and the status colour when it is not.
+    /// its state's colour from the one meter palette.
     private func poolRing(_ providerID: String, _ pool: FleetPool) -> some View {
         let used = settings.displayMode == .used
         let shown = used ? 100 - pool.averageRemaining : pool.averageRemaining
         let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
-        return PoolRingView(fraction: shown / 100,
-                            gradient: PanelStyle.brandGradient(providerID, severity: severity),
+        return PoolRingView(fraction: shown / 100, severity: severity,
                             figure: "\(Int(shown.rounded()))%",
-                            caption: (used ? L("Used") : L("Left")).uppercased())
+                            caption: (severity == .exhausted ? L("Used up") : used ? L("Used") : L("Left")).uppercased())
     }
 
     /// Which pool the ring shows and its next refill, ticking a minute at a time like every other

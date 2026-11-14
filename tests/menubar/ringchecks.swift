@@ -13,7 +13,7 @@ func poolRingChecks() {
     }
 
     // Colour: the panel bar's own ramp, green from 50% left, amber from 20%, red below. 50 and 20
-    // themselves sit on the calmer side; 0% is red with an empty arc.
+    // themselves sit on the calmer side; 0% is used up, with an empty arc on a red track.
     func ringOf(_ left: Double) -> PoolRing { ring(100 - left) }
     expect(ring(40) == PoolRing(fraction: 0.6, severity: .normal, isFaded: false),
            "plenty left: green, arc = remaining")
@@ -25,7 +25,8 @@ func poolRingChecks() {
     expect(ringOf(20).severity == .warning && ringOf(19).severity == .critical,
            "exactly 20% left stays amber, 19% is red")
     expect(ringOf(15).severity == .critical && ringOf(15).fraction == 0.15, "15% left: red")
-    expect(ringOf(0).severity == .critical && ringOf(0).fraction == 0, "0% left is red with nothing but the track")
+    expect(ringOf(0).severity == .exhausted && ringOf(0).fraction == 0, "0% left is used up: no arc, a red track")
+    expect(ringOf(1).severity == .critical, "1% left is still near empty, not used up")
     expect(ring(120).fraction == 0, "a pool reported over 100% used clamps to an empty arc")
 
     // The ring wears what the bar wears: the metric's own severity, the provider's word over a threshold.

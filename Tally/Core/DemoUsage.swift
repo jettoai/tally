@@ -23,7 +23,7 @@ enum DemoUsage {
     static var showsPastReset: Bool { UserDefaults.standard.bool(forKey: "TallyDemoPastReset") }
 
     /// `-TallyDemoColorLevels YES` (with `-TallyDemoData`): only four Claude fixtures, their weekly
-    /// windows at 15, 40, 70 and 100% left, so one capture shows every colour a menu bar ring and a
+    /// windows at 72, 35, 12 and 0% left, one per meter state (plenty, low, near empty, used up), so one capture shows every colour a menu bar ring and a
     /// panel bar can wear side by side. A modifier, off by default like the ones above.
     static var showsColorLevels: Bool { UserDefaults.standard.bool(forKey: "TallyDemoColorLevels") }
 
@@ -213,7 +213,7 @@ enum DemoUsage {
         }
         if showsColorLevels {
             // The weekly windows are every kind the strip or the panel might read for the account.
-            let remaining = ["Claude": 15.0, "Claude 2": 40, "Claude 3": 70, "Claude 4": 100]
+            let remaining = ["Claude": 72.0, "Claude 2": 35, "Claude 3": 12, "Claude 4": 0]
             result = result.compactMap { usage in
                 guard let left = remaining[usage.accountLabel], usage.providerID == "claude" else { return nil }
                 var leveled = usage

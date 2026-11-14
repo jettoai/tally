@@ -307,14 +307,14 @@ extension PopoverRootView {
     private func pooledBar(_ pool: FleetPool) -> some View {
         let mode = settings.displayMode
         let capacity = Double(pool.members.count) * 100
-        let color = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining).color
+        let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
         let shown = mode == .used ? capacity - pool.totalRemaining : pool.totalRemaining
         return GeometryReader { geo in
             ZStack(alignment: mode == .used ? .leading : .trailing) {
-                Capsule().fill(.quaternary)
+                Capsule().fill(severity.groove)
                 Capsule()
-                    .fill(color)
-                    .frame(width: max(3, geo.size.width * shown / capacity))
+                    .fill(severity.color)
+                    .frame(width: shown > 0 ? max(3, geo.size.width * shown / capacity) : 0)
             }
         }
         .frame(height: 6)

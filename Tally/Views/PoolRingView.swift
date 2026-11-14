@@ -1,13 +1,14 @@
 import SwiftUI
 
 /// The pool ring of a provider card: the arc is the share shown (left or used), the figure sits in
-/// the middle with a one-word caption under it. A thick round-capped arc in a two-colour gradient on
-/// a faint groove; the gradient is handed in by the caller (brand while healthy, amber or red when low).
+/// the middle with a one-word caption under it. A thick round-capped arc on
+/// a faint groove, both in the state's colours from the one meter palette; a spent ring has no arc and a red groove.
 struct PoolRingView: View {
     var size: CGFloat = PanelStyle.ringSize
     /// 0...1, the share of the ring that is drawn.
     var fraction: Double
-    var gradient: [Color]
+    /// The state the ring is in; its arc, groove and figure all read the one meter palette.
+    var severity: MetricSeverity
     /// The figure with its percent sign ("58%"); the sign is drawn small and raised.
     var figure: String
     var caption: String? = nil
@@ -15,22 +16,22 @@ struct PoolRingView: View {
     var body: some View {
         let width = PanelStyle.ringStroke
         let inset = width / 2 + 0.5
-        // The arc is stroked first and turned afterwards, so the gradient turns with it.
-        let arc = LinearGradient(colors: gradient, startPoint: .topLeading, endPoint: .bottomTrailing)
         ZStack {
-            Circle().inset(by: inset).stroke(PanelStyle.track, lineWidth: width)
-            Circle().inset(by: inset)
-                .trim(from: 0, to: max(0.001, min(1, fraction)))
-                .stroke(arc, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+            Circle().inset(by: inset).stroke(severity.groove, lineWidth: width)
+            if fraction > 0 {
+                Circle().inset(by: inset)
+                    .trim(from: 0, to: min(1, fraction))
+                    .stroke(severity.color, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
             VStack(spacing: 2) {
                 figureText
-                    .foregroundStyle(PanelStyle.text)
+                    .foregroundStyle(severity.figureInk ?? PanelStyle.text)
                 if let caption {
                     Text(caption)
                         .font(PanelStyle.font(9, 600))
                         .tracking(0.4)
-                        .foregroundStyle(PanelStyle.text2)
+                        .foregroundStyle(severity == .exhausted ? TallyColor.alarmInk : PanelStyle.text2)
                 }
             }
             .lineLimit(1)

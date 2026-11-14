@@ -16,17 +16,21 @@ enum TallyMetrics {
     static let hairline: CGFloat = 0.5
 }
 
-/// Semantic meter colours: a 3-stop traffic-light ramp (safe → caution → danger). Amber (not blue) is
-/// the middle so the ramp reads at a glance with zero learning; the green is a calm, desaturated tone
-/// rather than a saturated "game HUD" green, so a healthy account looks quiet, not loud.
+/// Semantic state colours. `normal`, `warning`, `critical` and `exhausted` are the meter states and
+/// read `MeterPalette` (Core/MeterPalette.swift), the one set every bar and ring draws with; every
+/// other surface that says "fine / careful / bad" borrows the same three so the product has one
+/// ramp. Each is dynamic: it resolves to the dark or the light set where it is drawn.
 enum TallyColor {
-    static let normal = Color(red: 0.36, green: 0.66, blue: 0.42)    // calm sage green
-    static let warning = Color(red: 0.93, green: 0.66, blue: 0.20)   // amber (legible light + dark)
+    /// Plenty left. In dark mode #3DCF6A sits on the same hue as `brand` (#30D159). That is the one
+    /// accepted exception to "the brand colour asserts nothing about condition": Albert picked
+    /// design B on 2026-11-14 (B-4059), and `brand` itself still only marks identity.
+    static let normal = Color(nsColor: MeterColor.dynamic { $0.normal })
+    static let warning = Color(nsColor: MeterColor.dynamic { $0.warning })
     /// Text on a `warning.opacity(0.15)` capsule. The amber itself reads 1.86:1 on that capsule in
     /// light mode, so light mode darkens the text; dark mode keeps the amber (B-1524's advisor tag).
     static let warningInk = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(TallyColor.warning)
+            ? MeterColor.rgb(MeterPalette.dark.warning)
             : NSColor(srgbRed: 0.55, green: 0.33, blue: 0.0, alpha: 1)
     })
     /// The smart pick's mark ("the machine chose this", distinct from the human's orange pin): a
@@ -36,9 +40,16 @@ enum TallyColor {
             ? NSColor(srgbRed: 0xD4 / 255, green: 0xD4 / 255, blue: 0xD8 / 255, alpha: 1)
             : NSColor(srgbRed: 0x3A / 255, green: 0x3A / 255, blue: 0x3C / 255, alpha: 1)
     })
-    static let critical = Color(red: 0.86, green: 0.31, blue: 0.29)  // softened red, not alarm-siren
+    static let critical = Color(nsColor: MeterColor.dynamic { $0.critical })
+    /// Spent: 100% used. Drawn with a red groove as well, so it reads apart from `critical` by shape.
+    static let exhausted = Color(nsColor: MeterColor.dynamic { $0.exhausted })
+    /// A meter figure from critical on (`MetricSeverity.figureInk`).
+    static let alarmInk = Color(nsColor: MeterColor.dynamic { $0.alarmInk })
+    /// The groove under a bar or ring, and a spent window's red one.
+    static let groove = Color(nsColor: MeterColor.dynamic(alpha: { $0.grooveAlpha }) { $0.grooveHex })
+    static let exhaustedGroove = Color(nsColor: MeterColor.dynamic(alpha: { $0.exhaustedGrooveAlpha }) { $0.exhausted })
     /// THE STATE AXIS'S GREEN: something is alive and running, and nobody has to do anything about
-    /// it. Bright and saturated on purpose, so it cannot be taken for `normal`'s calm sage. The two
+    /// it. It was the bright green beside `normal`'s calm sage until design B (B-4059) made `normal` bright too; the two now stay apart by role, not by look. The two
     /// answer different questions and never share a surface: `normal` fills a meter (a continuous
     /// quantity, "how much is left"), this fills a small dot in a set of discrete categories ("what
     /// is it doing"). Keeping them different literals is what keeps that distinction honest.
@@ -53,16 +64,62 @@ enum TallyColor {
     static let brand = Color(red: 0.19, green: 0.82, blue: 0.35)
 }
 
+/// `MeterPalette` as AppKit colours: a dynamic one for live views, a plain one for a fixed scheme.
+enum MeterColor {
+    static func rgb(_ hex: UInt32, alpha: Double = 1) -> NSColor {
+        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255, alpha: CGFloat(alpha))
+    }
+
+    /// Resolves to the dark or the light set wherever it is drawn, so an open panel repaints on an
+    /// appearance switch.
+    static func dynamic(alpha: @escaping (MeterPalette) -> Double = { _ in 1 },
+                        _ hex: @escaping (MeterPalette) -> UInt32) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let set = MeterPalette.of(dark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            return rgb(hex(set), alpha: alpha(set))
+        }
+    }
+}
+
 extension MetricSeverity {
-    /// The bar's fill colour. The bar is the single carrier of urgency now, so this ramp is what the
-    /// eye reads first; the numeral itself stays neutral (`.primary`).
+    /// This state's fill in one set; nil for `.unknown`, which each surface draws in its own ink.
+    func meterFill(_ set: MeterPalette) -> UInt32? {
+        switch self {
+        case .normal: return set.normal
+        case .warning: return set.warning
+        case .critical: return set.critical
+        case .exhausted: return set.exhausted
+        case .unknown: return nil
+        }
+    }
+
+    /// The bar's and ring's fill, following the appearance it is drawn in.
     var color: Color {
         switch self {
         case .normal: return TallyColor.normal
         case .warning: return TallyColor.warning
         case .critical: return TallyColor.critical
+        case .exhausted: return TallyColor.exhausted
         case .unknown: return Color.secondary
         }
+    }
+
+    /// The fill for one fixed scheme, for an image rendered off screen (the menu bar strip), where
+    /// no appearance is current and a dynamic colour can resolve to the wrong set. nil for `.unknown`.
+    func color(in scheme: ColorScheme) -> Color? {
+        meterFill(MeterPalette.of(dark: scheme == .dark)).map { Color(nsColor: MeterColor.rgb($0)) }
+    }
+
+    /// The figure's ink from critical on; nil leaves the surface's own text colour.
+    var figureInk: Color? { isAtOrPastCritical ? TallyColor.alarmInk : nil }
+
+    /// The groove under this state's bar or ring: neutral, or red when the window is spent.
+    var groove: Color { self == .exhausted ? TallyColor.exhaustedGroove : TallyColor.groove }
+
+    /// The 22pt rings' track opacity (menu bar, pinned panel).
+    var smallRingTrackOpacity: Double {
+        self == .exhausted ? MeterPalette.smallRingExhaustedTrackAlpha : MeterPalette.smallRingTrackAlpha
     }
 }
 

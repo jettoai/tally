@@ -32,7 +32,7 @@ enum PanelPalette {
         var alpha: Double = 1
     }
 
-    /// Two ends of a brand gradient (left to right on a bar, top-left to bottom-right on the ring).
+    /// Two ends of a gradient (the machine group tile, 140 degrees).
     struct Gradient {
         var from: UInt32
         var to: UInt32
@@ -51,8 +51,8 @@ enum PanelPalette {
     ///
     /// Inks that did not clear their contrast on the worst flat desktop with a halo at its peak were
     /// moved away from their background by the least that passes (dark: the plan, status and
-    /// suggestion pill words, `lowInk`, `text2`, `text3`, the Claude mark, the violet and red bar
-    /// starts; light: the violet pill's word and the unselected switch word). Opacities were not touched.
+    /// suggestion pill words, `lowInk`, `text2`, `text3`, the Claude mark;
+    /// light: the violet pill's word and the unselected switch word). Opacities were not touched.
     struct Skin {
         /// The glass: a 165 degree gradient of three stops, each laid at `alpha` over the blurred desktop.
         var stops: [UInt32]
@@ -75,12 +75,7 @@ enum PanelPalette {
         var colHeadLine: Tone
         var track: Tone
         var hotRow: Tone
-        /// Gradients and inks per brand and per severity.
-        var claude: Gradient
-        var codex: Gradient
-        var violet: Gradient
-        var amber: Gradient
-        var red: Gradient
+        /// Inks per brand.
         var inkClaude: UInt32
         var inkCodex: UInt32
         var inkSpark: UInt32
@@ -118,11 +113,8 @@ enum PanelPalette {
             card: Tone(hex: 0xFFFFFF, alpha: 0.045), cardEdge: Tone(hex: 0xFFFFFF, alpha: 0.08),
             cardTop: Tone(hex: 0xFFFFFF, alpha: 0.10), cardShadow: Tone(hex: 0x000000, alpha: 0),
             footer: Tone(hex: 0xFFFFFF, alpha: 0.045), footerEdge: Tone(hex: 0xFFFFFF, alpha: 0.07),
-            colHeadLine: Tone(hex: 0xFFFFFF, alpha: 0.08), track: Tone(hex: 0x000000, alpha: 0.30),
+            colHeadLine: Tone(hex: 0xFFFFFF, alpha: 0.08), track: Tone(hex: MeterPalette.dark.grooveHex, alpha: MeterPalette.dark.grooveAlpha),
             hotRow: Tone(hex: 0xFF6E60, alpha: 0.07),
-            claude: Gradient(from: 0xD4D4D8, to: 0xD4D4D8), codex: Gradient(from: 0xD4D4D8, to: 0xD4D4D8),
-            violet: Gradient(from: 0xD4D4D8, to: 0xD4D4D8), amber: Gradient(from: 0xF0A23A, to: 0xF0A23A),
-            red: Gradient(from: 0xFF8378, to: 0xFF8378),
             inkClaude: 0xF18F66, inkCodex: 0x3FD6AE, inkSpark: 0xD4D4D8, inkWarn: 0xFFB45C,
             lowInk: 0xFFC6C0, paceWarn: 0xFFC56B,
             violetPill: Pill(fill: Tone(hex: 0xFFFFFF, alpha: 0.10), ink: 0xE6E6EA),
@@ -147,11 +139,8 @@ enum PanelPalette {
             card: Tone(hex: 0xFFFFFF, alpha: 0.60), cardEdge: Tone(hex: 0x000000, alpha: 0.08),
             cardTop: Tone(hex: 0xFFFFFF, alpha: 0), cardShadow: Tone(hex: 0x000000, alpha: 0.06),
             footer: Tone(hex: 0xFFFFFF, alpha: 0.50), footerEdge: Tone(hex: 0x000000, alpha: 0.08),
-            colHeadLine: Tone(hex: 0x000000, alpha: 0.08), track: Tone(hex: 0x000000, alpha: 0.09),
+            colHeadLine: Tone(hex: 0x000000, alpha: 0.08), track: Tone(hex: MeterPalette.light.grooveHex, alpha: MeterPalette.light.grooveAlpha),
             hotRow: Tone(hex: 0xDC3C28, alpha: 0.07),
-            claude: Gradient(from: 0x2C2C30, to: 0x2C2C30), codex: Gradient(from: 0x2C2C30, to: 0x2C2C30),
-            violet: Gradient(from: 0x2C2C30, to: 0x2C2C30), amber: Gradient(from: 0x8A5000, to: 0x8A5000),
-            red: Gradient(from: 0xA21F14, to: 0xA21F14),
             inkClaude: 0xA8441F, inkCodex: 0x096A52, inkSpark: 0x2C2C30, inkWarn: 0x985600,
             lowInk: 0xB4271C, paceWarn: 0x8A4E00,
             violetPill: Pill(fill: Tone(hex: 0x000000, alpha: 0.06), ink: 0x3A3A3E),

@@ -283,7 +283,7 @@ private struct PinnedRing: View {
     private func arc(_ fraction: Double?, severity: MetricSeverity, inset: CGFloat, lineWidth: CGFloat) -> some View {
         let color = paint(severity)
         if let fraction {
-            Circle().inset(by: inset).stroke(color, lineWidth: lineWidth).opacity(0.28)
+            Circle().inset(by: inset).stroke(color, lineWidth: lineWidth).opacity(severity.smallRingTrackOpacity)
             Circle().inset(by: inset).trim(from: 0, to: min(1, max(0, fraction)))
                 .stroke(color, lineWidth: lineWidth)
                 .rotationEffect(.degrees(-90))

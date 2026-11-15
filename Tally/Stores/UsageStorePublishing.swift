@@ -121,16 +121,14 @@ extension UsageStore {
             // A provider split by plan has no single headline pool; older CLIs that read only
             // `fleet` then print no pool line for it instead of one plan's pool labelled as the
             // whole provider.
-            if summary.planTier == nil, let pool = summary.headline(focusedModel: focused),
-               pool.kind != .session {
-                fleet[summary.providerID] = published(pool)
+            guard let pool = summary.headline(focusedModel: focused), pool.kind != .session else {
+                continue
             }
+            if summary.planTier == nil { fleet[summary.providerID] = published(pool) }
             // Mirrors FleetStripView.displayedPools, so `tally status` shows the same pool
             // as the panel: the account-wide weekly headline.
-            let pools = (summary.headline(focusedModel: focused).map { [$0] } ?? [])
-                .filter { $0.kind != .session }
             // Accumulate: a provider split by plan arrives once per plan.
-            if !pools.isEmpty { fleetPools[summary.providerID, default: []] += pools.map(published) }
+            fleetPools[summary.providerID, default: []].append(published(pool))
         }
         return (fleet.isEmpty ? nil : fleet, fleetPools.isEmpty ? nil : fleetPools)
     }

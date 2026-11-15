@@ -255,10 +255,8 @@ do {
     expect(modelOnly.first?.displayPools(focusedModel: nil).map(\.kind) == [.weeklyModel],
            "a fleet with only model pools never draws an empty strip")
     // The launch model "opus" matches no window here, so the focus resolves to nil (weekly leads).
-    let opus: String? = nil
-    expect(opus == nil
-               && s.first?.displayPools(focusedModel: opus).contains { $0.modelName == "Fable 5" } == true
-               && s.first?.displayPools(focusedModel: opus).first?.kind == .weeklyAll,
+    expect(s.first?.displayPools(focusedModel: nil).contains { $0.modelName == "Fable 5" } == true
+               && s.first?.displayPools(focusedModel: nil).first?.kind == .weeklyAll,
            "an opus launch model with only a Fable window still draws it, after the weekly total")
     let undeclared = FleetFocus.flagship(s.first?.modelPoolNames ?? [], order: order)
     expect(undeclared == "Fable 5" && s.first?.displayPools(focusedModel: undeclared)

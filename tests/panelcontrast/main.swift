@@ -308,7 +308,15 @@ let neededWithPill = PanelMetrics.nameFloor + 5 + widestPill + 4 + PanelMetrics.
 print("  widest pill=\(widestPill) needed=\(neededWithPill) three windows=\(PanelMetrics.identityColumnWidth(columns: 3)) four windows=\(PanelMetrics.identityColumnWidth(columns: 4))")
 check(neededWithPill <= PanelMetrics.identityColumnWidth(columns: 3), "name floor, pill and launch slot fit the three-window identity column")
 check(neededWithPill > PanelMetrics.identityColumnWidth(columns: 4), "four windows leave no room for the pill, so the row drops it rather than overflow")
-check(PanelMetrics.identityColumnWidth(columns: 2) >= neededWithPill, "two windows fit the pill, the slot and a name as well")
+// Two windows take the table's 136pt on a wide panel; the narrowest panel narrows the cell
+// (`meterCellWidth(columns:rowWidth:)`) so the pill still fits (B-4609).
+check(neededWithPill <= PanelMetrics.identityWithPill, "the identity-with-pill room the cell narrowing keeps covers what is measured here")
+let narrowRow = PanelGeometry.detailedPanelWidth - 2 * PanelMetrics.bodyPadH - 2 * PanelMetrics.cardPadH
+for n in 1 ... 3 {
+    let cell = PanelMetrics.meterCellWidth(columns: n, rowWidth: narrowRow)
+    check(PanelMetrics.identityColumnWidth(columns: n, cell: cell) >= neededWithPill,
+          "\(n) window(s) on the narrowest panel (cell \(cell)pt) fit the pill, the slot and a name as well")
+}
 
 print("measures (read from PanelMetrics, PanelGeometry and PanelPalette)")
 let columns = 3

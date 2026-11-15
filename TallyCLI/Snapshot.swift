@@ -219,7 +219,17 @@ let noAccountsYetNextStep = "open Tally from the menu bar to sign in, or run `ta
 nonisolated(unsafe) var snapshotAppRunning: () -> Bool = { false }
 
 func readSnapshot(url: URL = snapshotURL, appRunning: () -> Bool = snapshotAppRunning) -> SnapshotRead {
-    guard let data = try? Data(contentsOf: url) else { return .missing(appRunning: appRunning()) }
+    let data: Data
+    do { data = try Data(contentsOf: url) } catch {
+        // Only "the file is not there" means nobody has published yet. A file that exists but cannot
+        // be read (permissions, a directory in its place, a locked parent) is `.unreadable`, so it
+        // does not get the "no accounts yet" sentence (B-4605).
+        let ns = error as NSError
+        let absent = (ns.domain == NSCocoaErrorDomain && ns.code == NSFileReadNoSuchFileError)
+            || (ns.domain == NSPOSIXErrorDomain && ns.code == Int(ENOENT))
+            || ((ns.userInfo[NSUnderlyingErrorKey] as? NSError).map { $0.domain == NSPOSIXErrorDomain && $0.code == Int(ENOENT) } ?? false)
+        return absent ? .missing(appRunning: appRunning()) : .unreadable
+    }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     guard let snapshot = try? decoder.decode(Snapshot.self, from: data) else { return .unreadable }

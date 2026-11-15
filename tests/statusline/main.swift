@@ -320,6 +320,16 @@ let p5Stopped = snapshotPair(readSnapshot(url: p5Missing, appRunning: { false })
 check("no file and the app not running keeps the old sentence word for word",
       p5Stopped.0 == nil
           && p5Stopped.1 == "no snapshot at \(p5Missing.path) - is Tally.app running?")
+// B-4605: a path that exists but cannot be read as a file (here a directory) is unreadable, not missing.
+let p5AsDir = p5Dir.appendingPathComponent("asdir.json")
+try? FileManager.default.createDirectory(at: p5AsDir, withIntermediateDirectories: true)
+if case .unreadable = readSnapshot(url: p5AsDir, appRunning: { true }) {
+    check("a directory where the snapshot should be reads as unreadable, not missing", true)
+} else {
+    check("a directory where the snapshot should be reads as unreadable, not missing", false)
+}
+check("…and keeps the old unreadable sentence",
+      snapshotPair(readSnapshot(url: p5AsDir, appRunning: { true }), url: p5AsDir).1 == "unreadable snapshot - update Tally.app?")
 let p5Fresh = p5Dir.appendingPathComponent("fresh.json")
 let p5Stamp = ISO8601DateFormatter().string(from: Date())
 try? Data("{\"version\":1,\"generatedAt\":\"\(p5Stamp)\",\"accounts\":[]}".utf8).write(to: p5Fresh)

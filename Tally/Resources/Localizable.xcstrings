@@ -30084,6 +30084,76 @@
         }
       }
     },
+    "Evidence: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "證據檔：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取证文件：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証拠ファイル: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "증거 파일: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanıt: %@"
+          }
+        }
+      }
+    },
+    "Partial evidence (no root permission for sample and fs_usage): %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分證據（沒有 root 權限，無法執行 sample 與 fs_usage）：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分取证（没有 root 权限，无法运行 sample 和 fs_usage）：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部の証拠のみ（sample と fs_usage に必要な root 権限がありません）: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 증거만 (sample 및 fs_usage에 필요한 root 권한 없음): %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısmi kanıt (sample ve fs_usage için root yetkisi yok): %@"
+          }
+        }
+      }
+    },
     "Process running hot: %@": {
       "extractionState": "manual",
       "localizations": {

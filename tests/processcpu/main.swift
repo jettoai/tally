@@ -346,6 +346,10 @@ do {
     expect(!texts.contains { $0.contains("\u{2014}") }, "T16 no em dash in what is printed")
 }
 
+// MARK: - T17 to T26 the evidence file (B-4616), in forensics.swift
+
+forensicsTests()
+
 // MARK: - structural promises, read as text
 
 func read(_ path: String) -> String { (try? String(contentsOfFile: path, encoding: .utf8)) ?? "" }
@@ -355,6 +359,8 @@ let logic = read("Tally/Core/ProcessCPUWatchLogic.swift")
 let timing = read("Tally/Stores/ProcessFootprintTiming.swift")
 let hostMonitor = read("Tally/Core/HostHealthMonitor.swift")
 let hostReaders = read("Tally/Core/HostHealthReaders.swift")
+let forensicsLogic = read("Tally/Core/ProcessForensicsLogic.swift")
+let forensicsReaders = read("Tally/Core/ProcessForensicsReaders.swift")
 expect(!monitor.isEmpty && !readers.isEmpty && !logic.isEmpty && !timing.isEmpty, "the sources are readable")
 
 // S1 clock throttle, no timer of its own
@@ -383,6 +389,14 @@ if let call = monitor.range(of: "ProcessCPUWatchReaders.table()"), let detached 
     expect(false, "S3 the reader is called inside a detached task")
 }
 expect(monitor.contains("guard !inFlight"), "S3 a slow ps is skipped over, not queued")
+// S6 the evidence capture is started before the banner and is not waited for; no argument vector is read
+if let started = monitor.range(of: "Self.capture(plans)"), let posted = monitor.range(of: "await post(events") {
+    expect(started.lowerBound < posted.lowerBound, "S6 the capture is started before the banner is posted")
+} else {
+    expect(false, "S6 the capture is started before the banner is posted")
+}
+expect(monitor.contains("DispatchQueue.global(qos: .utility).async") && !forensicsReaders.contains("KERN_PROCARGS"),
+       "S6 a capture runs on its own dispatch thread, and reads no argument vector")
 // S4 the two older watches stay free of subprocesses (their own suites lock it; asserted here too)
 expect(!hostMonitor.contains("/bin/ps") && !hostReaders.contains("/bin/ps"), "S4 HostHealth still does not spawn ps")
 
@@ -391,6 +405,7 @@ let keys = [
     "Process running hot: %@", "Processes running hot: %1$@ and %2$@ more",
     "%1$@ at %2$@%% of one core for %3$@ min", "Process calmed down: %@",
     "Processes calmed down: %1$@ and %2$@ more", "%1$@ is down to %2$@%% after %3$@ min over the line",
+    "Evidence: %@", "Partial evidence (no root permission for sample and fs_usage): %@",
     "%1$@ exited after %2$@ min over the line", "Process CPU alert",
     "Notify when any one process stays above 80% of a core for 15 minutes, and again when it calms down.",
 ]
@@ -421,7 +436,7 @@ if let data = FileManager.default.contents(atPath: "Tally/Resources/Localizable.
 }
 
 // no em dash in the new sources
-expect(![logic, readers, monitor].contains { $0.contains("\u{2014}") }, "no em dash in the new sources")
+expect(![logic, readers, monitor, forensicsLogic, forensicsReaders].contains { $0.contains("\u{2014}") }, "no em dash in the new sources")
 
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

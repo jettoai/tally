@@ -98,6 +98,10 @@ struct ProcessCPUEvent: Equatable, Sendable {
     var announced: Bool
     /// The app macOS holds responsible for a system executable, filled in by the monitor.
     var app: String? = nil
+    /// An alarm's process start time: with the pid, the identity its evidence file is kept once for.
+    var startedAt: Date? = nil
+    /// What the evidence capture did for this alarm, filled in by the monitor (B-4616).
+    var evidence: ProcessForensicsOutcome? = nil
 }
 
 enum ProcessCPUOwner: String, Equatable, Sendable { case tally, system, none }
@@ -245,7 +249,7 @@ enum ProcessCPUWatchLogic {
                     track.overSince = nil
                     events.append(ProcessCPUEvent(kind: .alarm, pid: row.pid, path: row.path,
                                                   percent: percent, since: since, until: now,
-                                                  announced: announcing))
+                                                  announced: announcing, startedAt: row.startedAt))
                 }
             } else {
                 track.overSince = nil
@@ -275,7 +279,7 @@ enum ProcessCPUWatchLogic {
         percent.map { String(Int($0.rounded())) } ?? "?"
     }
 
-    private static func name(_ path: String, displayName: (String) -> String?) -> String {
+    static func name(_ path: String, displayName: (String) -> String?) -> String {
         let raw = displayName(path) ?? (path as NSString).lastPathComponent
         let clean = keystrokeStripped(raw)
         return clean.isEmpty ? "unknown" : clean
@@ -331,10 +335,14 @@ enum ProcessCPUWatchLogic {
 
     static func alarmBody(_ events: [ProcessCPUEvent], now: Date, localized: (String) -> String,
                           displayName: (String) -> String?) -> String {
-        lines(events, localized: localized, displayName: displayName) { event, who in
+        let body = lines(events, localized: localized, displayName: displayName) { event, who in
             String(format: localized("%1$@ at %2$@%% of one core for %3$@ min"),
                    who, figure(event.percent), minutes(now.timeIntervalSince(event.since)))
         }
+        // One last line: where the hottest alarm's evidence file is.
+        let notice = ranked(events).compactMap { $0.evidence }
+            .compactMap { ProcessForensicsLogic.noticeLine($0, localized: localized) }.first
+        return notice.map { body + "\n" + $0 } ?? body
     }
 
     static func clearTitle(_ events: [ProcessCPUEvent], localized: (String) -> String,
@@ -369,6 +377,7 @@ enum ProcessCPUWatchLogic {
         }
         line += " announced=\(event.announced ? "yes" : "no") owner=\(owner(path: event.path).rawValue)"
         if let app = appName(event) { line += " app=\(app.replacingOccurrences(of: " ", with: "_"))" }
+        if let evidence = event.evidence { line += " evidence=\(ProcessForensicsLogic.logToken(evidence))" }
         return line + " name=\(name(event.path, displayName: displayName))\n"
     }
 

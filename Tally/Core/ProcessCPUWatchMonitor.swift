@@ -25,6 +25,9 @@ final class ProcessCPUWatchMonitor {
     private var lastSampledAt: Date?
     private var inFlight = false
     private var unreadLogged = false
+    /// Identities that already have an evidence file, so a process that alarms, clears and alarms
+    /// again is captured once (B-4616). Memory only, like the watch.
+    private var capturedIdentities = Set<String>()
 
     private init() {}
 
@@ -74,23 +77,58 @@ final class ProcessCPUWatchMonitor {
                                                          announcing: true)
         watch = next
         guard !found.isEmpty else { return }
-        let events = await Task.detached(priority: .utility) { Self.record(found, at: at) }.value
+        let seen = capturedIdentities
+        let (events, plans) = await Task.detached(priority: .utility) {
+            Self.record(found, at: at, seen: seen)
+        }.value
+        capturedIdentities.formUnion(plans.map(\.identity))
+        // Started before the banner and not awaited: the banner names the file, never waits for it.
+        Self.capture(plans)
         await post(events, at: at)
     }
 
-    /// Off the main actor: who is responsible for each system alarm, then one log line per event.
-    nonisolated private static func record(_ events: [ProcessCPUEvent], at now: Date) -> [ProcessCPUEvent] {
+    /// Off the main actor: who is responsible for each system alarm, which alarms get an evidence
+    /// file (and under what name), then one log line per event.
+    nonisolated private static func record(_ events: [ProcessCPUEvent], at now: Date,
+                                           seen: Set<String>) -> ([ProcessCPUEvent], [ProcessForensicsPlan]) {
         var events = events
-        for index in events.indices where events[index].kind == .alarm
-            && ProcessCPUWatchLogic.owner(path: events[index].path) == .system {
-            // Only at the moment of an alarm, not on every minute's reading.
-            events[index].app = CPUAlertReaders.responsiblePath(of: events[index].pid)
-                .flatMap(CPUAlertLogic.appName)
+        var plans: [ProcessForensicsPlan] = []
+        let existing = ProcessForensicsReaders.entries(
+            in: ProcessForensicsLogic.directory(unshipped: BuildVariant.isUnshipped))
+        for index in events.indices where events[index].kind == .alarm {
+            let event = events[index]
+            if ProcessCPUWatchLogic.owner(path: event.path) == .system {
+                // Only at the moment of an alarm, not on every minute's reading.
+                events[index].app = CPUAlertReaders.responsiblePath(of: event.pid).flatMap(CPUAlertLogic.appName)
+            }
+            let id = ProcessForensicsLogic.identity(pid: event.pid, startedAt: event.startedAt ?? event.since)
+            switch ProcessForensicsLogic.decide(identity: id, seen: seen.union(plans.map(\.identity)),
+                                                entries: existing, accepted: plans.count, now: now) {
+            case .repeated: events[index].evidence = .skipped("repeat")
+            case .rateLimited: events[index].evidence = .skipped("rate")
+            case .capture:
+                let name = ProcessCPUWatchLogic.name(event.path) { ProcessTree.displayName(forPath: $0) }
+                let file = ProcessForensicsLogic.fileName(pid: event.pid, name: name, at: now)
+                plans.append(ProcessForensicsPlan(pid: event.pid, name: name, path: event.path, percent: event.percent,
+                                                  since: event.since, identity: id, fileName: file, capturedAt: now))
+                events[index].evidence = .file(file, partial: !ProcessForensicsReaders.canRead(event.pid))
+            }
         }
         for event in events {
             append(ProcessCPUWatchLogic.logLine(event, now: now) { ProcessTree.displayName(forPath: $0) })
         }
-        return events
+        return (events, plans)
+    }
+
+    /// A plain dispatch block each, not a Swift task: a capture holds its thread for the 10 s it
+    /// watches, and the cooperative pool is not the place for that.
+    nonisolated private static func capture(_ plans: [ProcessForensicsPlan]) {
+        let directory = ProcessForensicsLogic.directory(unshipped: BuildVariant.isUnshipped)
+        for plan in plans {
+            DispatchQueue.global(qos: .utility).async {
+                ProcessForensicsReaders.write(plan, probes: ProcessForensicsReaders.live(seconds: 10), directory: directory)
+            }
+        }
     }
 
     nonisolated private static func append(_ line: String) {

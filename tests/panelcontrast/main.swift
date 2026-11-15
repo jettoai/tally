@@ -308,14 +308,40 @@ let neededWithPill = PanelMetrics.nameFloor + 5 + widestPill + 4 + PanelMetrics.
 print("  widest pill=\(widestPill) needed=\(neededWithPill) three windows=\(PanelMetrics.identityColumnWidth(columns: 3)) four windows=\(PanelMetrics.identityColumnWidth(columns: 4))")
 check(neededWithPill <= PanelMetrics.identityColumnWidth(columns: 3), "name floor, pill and launch slot fit the three-window identity column")
 check(neededWithPill > PanelMetrics.identityColumnWidth(columns: 4), "four windows leave no room for the pill, so the row drops it rather than overflow")
-// Two windows take the table's 136pt on a wide panel; the narrowest panel narrows the cell
-// (`meterCellWidth(columns:rowWidth:)`) so the pill still fits (B-4609).
-check(neededWithPill <= PanelMetrics.identityWithPill, "the identity-with-pill room the cell narrowing keeps covers what is measured here")
-let narrowRow = PanelGeometry.detailedPanelWidth - 2 * PanelMetrics.bodyPadH - 2 * PanelMetrics.cardPadH
+// B-4609: the commonest names read WHOLE. The room measured is the row's own: the name ("Claude 2",
+// "Codex 2") at 12.5pt semibold, the 5pt gap, the plan pill, the marks after it (4pt lead; the stale
+// triangle at 9pt on a Claude row, the banked-reset arrow at 8pt, its 2pt gap and a 10pt digit on a
+// Codex row, both measured as drawn), the 4pt spacer and the launch slot. The widest row is what
+// `identityWithName` has to cover; the cell then narrows by what the panel lacks
+// (`meterCellWidth(columns:rowWidth:)`), and 555pt and wider keeps the table's 136pt.
+func textWidth(_ text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
+    ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: weight)]).width)
+}
+func symbolWidth(_ name: String, size: CGFloat) -> CGFloat {
+    ceil(NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))?.size.width ?? 0)
+}
+let nameFont = (size: CGFloat(12.5), weight: NSFont.Weight.semibold)
+let claudeMarks: CGFloat = 4 + symbolWidth("exclamationmark.triangle.fill", size: 9)
+let claudeRow = textWidth("Claude 5", size: nameFont.size, weight: nameFont.weight) + 5 + widestPill + claudeMarks + 4 + PanelMetrics.launchSlotWidth
+let codexMarks: CGFloat = 4 + symbolWidth("arrow.counterclockwise", size: 8) + 2 + textWidth("3", size: 10, weight: .regular)
+let codexRow = textWidth("Codex 2", size: nameFont.size, weight: nameFont.weight) + 5 + max(pillWidth("PRO"), pillWidth("TEAM")) + codexMarks + 4 + PanelMetrics.launchSlotWidth
+let neededWithName = max(claudeRow, codexRow)
+print("  names whole: claude row=\(claudeRow) codex row=\(codexRow) needed=\(neededWithName) constant=\(PanelMetrics.identityWithName)")
+check(neededWithName <= PanelMetrics.identityWithName, "identityWithName covers the widest common name beside its pill, marks and launch slot")
+check(skinSource.contains("case .badge: return (8.5, 700, 0.06 * 8.5, 5, 1.5)") && read("Tally/Views/AccountListRowView.swift").contains("PanelStyle.font(12.5, 600)"),
+      "the name type measured here is the one the row draws")
+print("name column by panel width (two windows)")
+for panel: CGFloat in [452, 463, 478, 555] {
+    let row = panel - 2 * PanelMetrics.bodyPadH - 2 * PanelMetrics.cardPadH
+    let cell = PanelMetrics.meterCellWidth(columns: 2, rowWidth: row)
+    let name = row - 2 * PanelMetrics.rowInsetH - PanelMetrics.meterBlockWidth(columns: 2, cell: cell) - PanelMetrics.meterGap
+    print("  panel=\(panel) cell=\(cell) name column=\(name) needed=\(neededWithName)")
+    check(name >= neededWithName, "the name column at \(panel)pt holds the widest common name whole")
+}
 for n in 1 ... 3 {
-    let cell = PanelMetrics.meterCellWidth(columns: n, rowWidth: narrowRow)
-    check(PanelMetrics.identityColumnWidth(columns: n, cell: cell) >= neededWithPill,
-          "\(n) window(s) on the narrowest panel (cell \(cell)pt) fit the pill, the slot and a name as well")
+    let cell = PanelMetrics.meterCellWidth(columns: n, rowWidth: PanelGeometry.detailedPanelWidth - 2 * PanelMetrics.bodyPadH - 2 * PanelMetrics.cardPadH)
+    check(PanelMetrics.identityColumnWidth(columns: n, cell: cell) >= neededWithPill, "\(n) window(s) on the narrowest panel keep the pill beside a name")
 }
 
 print("measures (read from PanelMetrics, PanelGeometry and PanelPalette)")

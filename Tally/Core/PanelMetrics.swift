@@ -40,18 +40,20 @@ enum PanelMetrics {
         }
     }
 
-    /// What the identity column needs to keep the plan pill: a name's floor, the pill, the launch
-    /// slot and their gaps (tests/panelcontrast measures it and asserts this covers it).
-    static let identityWithPill: CGFloat = 133
+    /// What the identity column keeps so the commonest names read whole beside their plan pill, the
+    /// launch slot and the marks ("Claude 5" with ULTRA and the stale triangle, "Codex 2" with PRO and the
+    /// banked-reset count). Measured in tests/panelcontrast, which asserts this constant covers it (B-4609).
+    static let identityWithName: CGFloat = 164
 
     /// The cell for a row `rowWidth` wide (the card less its side padding), shared by every card of
     /// the panel (the widest block's column count): the table's width, narrowed only as far as keeps
-    /// the pill beside a name when the block has three windows or fewer.
+    /// those names whole when the block has two windows or fewer (three and four keep their own table
+    /// widths, which already hold the pill and what a name leaves).
     static func meterCellWidth(columns: Int, rowWidth: CGFloat) -> CGFloat {
         let table = meterCellWidth(columns: columns)
-        guard (1 ... 3).contains(columns) else { return table }
+        guard (1 ... 2).contains(columns) else { return table }
         let n = CGFloat(columns)
-        let fit = ((rowWidth - 2 * rowInsetH - meterGap - identityWithPill - (n - 1) * meterGap) / n).rounded(.down)
+        let fit = ((rowWidth - 2 * rowInsetH - meterGap - identityWithName - (n - 1) * meterGap) / n).rounded(.down)
         return min(table, fit)
     }
 

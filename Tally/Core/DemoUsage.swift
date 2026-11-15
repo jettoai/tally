@@ -176,14 +176,14 @@ enum DemoUsage {
             // screenshot about an error rather than about the chip.
             claude("Claude 5", plan: "Ultra", model: 45, session: 89, weekly: 59,
                    modelResetDays: 2.6, sessionResetHours: 0.6, weeklyResetDays: 2.6, now: now),
-            codex("Codex", plan: "Pro", email: "sam@example.com", session: 42, weekly: 69,
-                  sessionResetHours: 2.4, weeklyResetDays: 5.9, resets: 3,
+            codex("Codex", plan: "Pro", email: "sam@example.com", weekly: 69,
+                  weeklyResetDays: 5.9, resets: 3,
                   expiresInHours: [290, 480, 600], now: now),
-            codex("Codex 2", plan: "Pro", email: "sam2@example.com", session: 71, weekly: 14,
-                  sessionResetHours: 0.9, weeklyResetDays: 3.3, resets: 1,
+            codex("Codex 2", plan: "Pro", email: "sam2@example.com", weekly: 14,
+                  weeklyResetDays: 3.3, resets: 1,
                   expiresInHours: [30], now: now),
-            codex("Codex 3", plan: "Pro", email: "sam3@example.com", session: 18, weekly: 83,
-                  sessionResetHours: 3.8, weeklyResetDays: 1.7, resets: 0, now: now),
+            codex("Codex 3", plan: "Pro", email: "sam3@example.com", weekly: 83,
+                  weeklyResetDays: 1.7, resets: 0, now: now),
             // Nine accounts total (a 3-column demo screenshot lands as a full 3x3 grid); the
             // one non-premium plan sits last, not mid-pack.
             //
@@ -191,8 +191,8 @@ enum DemoUsage {
             // login in a personal workspace and in a team's is two accounts that answer with one
             // email, and the identity callout's second line is what tells them apart. A fixture
             // set where every address is unique could never show that.
-            codex("Codex 4", plan: "Team", email: "sam@example.com", session: 47, weekly: 62,
-                  sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2,
+            codex("Codex 4", plan: "Team", email: "sam@example.com", weekly: 62,
+                  weeklyResetDays: 4.8, resets: 2,
                   expiresInHours: [220, nil], now: now),
         ]
         var result = fixtures + manyAccountsExtras(now: now)
@@ -457,11 +457,10 @@ enum DemoUsage {
             refreshedAt: now)
     }
 
-    /// A Codex account shaped like CodexAppServerClient's mapping: the 5h primary window plus
-    /// the weekly secondary, both with resets (some real plans report only the weekly; the demo
-    /// shows the full shape).
-    static func codex(_ label: String, plan: String, email: String, session: Double,
-                              weekly: Double, sessionResetHours: Double, weeklyResetDays: Double,
+    /// A Codex account with the weekly window only (B-4609: real Codex accounts report no 5h
+    /// window, so the demo card has no SESSION column either).
+    static func codex(_ label: String, plan: String, email: String,
+                              weekly: Double, weeklyResetDays: Double,
                               resets: Int, expiresInHours: [Double?] = [],
                               now: Date) -> AccountUsage {
         AccountUsage(
@@ -470,10 +469,6 @@ enum DemoUsage {
             // ones do): two of these deliberately share one address, and a derivation cannot say so.
             accountEmail: email,
             metrics: [
-                UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
-                            usedPercent: session, severity: .fromUsedPercent(session),
-                            resetsAt: now.addingTimeInterval(sessionResetHours * 3_600),
-                            isActive: false),
                 UsageMetric(id: "weekly_all", kind: .weeklyAll, label: "Weekly", modelName: nil,
                             usedPercent: weekly, severity: .fromUsedPercent(weekly),
                             resetsAt: now.addingTimeInterval(weeklyResetDays * 86_400),

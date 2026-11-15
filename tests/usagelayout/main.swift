@@ -193,7 +193,13 @@ MainActor.assumeIsolated {
     if let claude2, let claude5, let codex1 {
         check("a Claude without a 5h window draws only the flagship upright, no empty slot",
               uprightKinds(claude2) == [.weeklyModel] && LayoutWindows(claude2).weekly != nil)
-        check("a Codex account draws its 5h upright", uprightKinds(codex1) == [.session])
+        check("a Codex account has no 5h window (B-4609): nothing upright, only its week",
+              uprightKinds(codex1).isEmpty && LayoutWindows(codex1).weekly != nil)
+        check("no Codex demo account carries a session metric (B-4609)",
+              demo.filter { $0.providerID == "codex" }.count >= 4
+              && demo.filter { $0.providerID == "codex" }.allSatisfy { acct in
+                  !acct.metrics.contains { $0.kind == .session } && acct.metrics.contains { $0.kind == .weeklyAll }
+              })
         check("an account with all three draws 5h before flagship",
               uprightKinds(claude5) == [.session, .weeklyModel] && LayoutWindows(claude5).weekly != nil)
     }

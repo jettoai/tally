@@ -61,8 +61,8 @@ extension DemoUsage {
         let codexes = (0 ..< codexExtra).map { index -> AccountUsage in
             let number = index + 5
             let usage = codex("Codex \(number)", plan: codexPlans[index % codexPlans.count],
-                              email: "sam\(number)@example.com", session: figure(number, 31, 6, 88),
-                              weekly: figure(number, 47, 9, 84), sessionResetHours: 1 + Double(index),
+                              email: "sam\(number)@example.com",
+                              weekly: figure(number, 47, 9, 84),
                               weeklyResetDays: 2 + Double(index), resets: index % 3, now: now)
             return renamed(usage, extraCodexNames[index], number: number)
         }

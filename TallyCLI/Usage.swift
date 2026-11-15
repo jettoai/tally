@@ -60,6 +60,11 @@ usage:
                             spend one Codex banked reset through the running app (same
                             dedupe as the panel button); exit 0 redeemed, 1 refused or failed,
                             2 usage or ambiguous name, 3 no answer in time (may have spent)
+  tally forensics setup|status|remove [--timeout <seconds>]
+                            the one-time root helper that lets the process CPU watch capture
+                            `sample` and `fs_usage` of a runaway system process; `setup` shows
+                            the system's password window in the running app (Tally never sees
+                            the password); exit 0 done, 1 refused or not installed, 3 no answer
   tally best-dir <provider> print the export line for the best account
   tally launch-dir <provider> shim interface: like best-dir but honours the app's
                             launch policy (off → prints nothing)

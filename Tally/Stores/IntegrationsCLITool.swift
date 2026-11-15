@@ -224,7 +224,7 @@ extension IntegrationsStore {
     enum CLILinkBlock: Equatable { case folderMissing, notWritable }
     /// What the privileged step reported. The detail of a failure is for logs, never for the screen.
     /// `foreignFile`: the guard in `linkScript` found a file of somebody else's at the link path.
-    enum CLIElevationResult: Equatable { case done, cancelled, foreignFile, failed(String) }
+    typealias CLIElevationResult = AdminShell.Result
     enum CLIElevatedAction: Equatable {
         case link(directory: String, target: String, link: String)
         case unlink(link: String)
@@ -380,13 +380,8 @@ extension IntegrationsStore {
         return plain ? path : "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// osascript reports a cancelled password window as error -128; its message is in the user's
-    /// language, so the number is what is read.
     nonisolated static func elevationResult(exitCode: Int32, stderr: String) -> CLIElevationResult {
-        if exitCode == 0 { return .done }
-        if stderr.contains("(-128)") { return .cancelled }
-        if stderr.contains(foreignFileMarker) { return .foreignFile }
-        return .failed(stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        AdminShell.result(exitCode: exitCode, stderr: stderr, foreignMarker: foreignFileMarker)
     }
 
     /// What the administrator runs, as `sh -c <script> sh <dir> <target> <link>`. Never replaces a
@@ -398,8 +393,7 @@ extension IntegrationsStore {
         """
     nonisolated static let unlinkScript = #"if [ -L "$1" ]; then /bin/rm "$1"; fi"#
 
-    /// Paths and the prompt travel as argv and are quoted by AppleScript itself, so no path can
-    /// break out of the command. Waits as long as the user takes at the password window.
+    /// The link or unlink as root, through the shared password window (AdminShell.swift).
     nonisolated static func runOsascript(_ action: CLIElevatedAction, _ prompt: String) -> CLIElevationResult {
         let script: String
         let paths: [String]
@@ -411,21 +405,6 @@ extension IntegrationsStore {
             script = unlinkScript
             paths = [link]
         }
-        // argv = [script, path..., prompt]; the AppleScript source holds none of it.
-        let words = (2...paths.count + 1).map { "quoted form of (item \($0) of argv)" }
-            .joined(separator: " & \" \" & ")
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "on run argv",
-                             "-e", "do shell script \"/bin/sh -c \" & quoted form of (item 1 of argv) & \" sh \" & \(words) with prompt (last item of argv) with administrator privileges",
-                             "-e", "end run", script] + paths + [prompt]
-        let stderr = Pipe()
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderr
-        do { try process.run() } catch { return .failed("osascript did not start: \(error)") }
-        let text = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        process.waitUntilExit()
-        return elevationResult(exitCode: process.terminationStatus, stderr: text)
+        return AdminShell.run(script: script, arguments: paths, prompt: prompt, foreignMarker: foreignFileMarker)
     }
 }

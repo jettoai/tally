@@ -188,6 +188,10 @@ targets:
       # is the only thing separating a command line from an environment in that buffer, and a
       # second spelling of that boundary reads `env FOO=1 cmd` as a process launched with FOO set.
       - path: Tally/Core/SupervisorVersionStamp.swift
+      # The root evidence helper (B-4616): the app installs it behind the system's password window and
+      # `tally forensics status` reads whether it is there, so both targets compile the one description
+      # of what it is (and the one `sudo -n -l` check that says it works).
+      - path: Tally/Core/ProcessForensicsPrivilege.swift
       # A private overlay linked at ./overlay; absent in the public tree.
       - path: overlay/Shared
         optional: true
@@ -246,6 +250,9 @@ targets:
       # The redeem request channel: `tally redeem` writes a request and the installed app claims and
       # answers it, so both targets compile the one file format and the one claim rule.
       - path: TallyCLI/RedeemRequest.swift
+      # The same shape for `tally forensics setup|remove`: the CLI asks, the installed app shows the
+      # password window and answers through one small file, so both targets compile the one format.
+      - path: TallyCLI/ForensicsRequest.swift
       # When keyboard focus changed hands: the app records it and every supervisor reads it to tell a
       # terminal's focus reports from typing, so both targets compile the one file format.
       - path: TallyCLI/FocusEvents.swift

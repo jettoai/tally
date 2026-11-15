@@ -88,6 +88,9 @@ func runCLIToolChecks(tmp: URL) throws {
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let store = (try? String(contentsOf: root.appendingPathComponent(
         "Tally/Stores/IntegrationsCLITool.swift"), encoding: .utf8)) ?? ""
+    // The argv-only osascript call moved to the shared AdminShell (B-4616).
+    let admin = (try? String(contentsOf: root.appendingPathComponent(
+        "Tally/Core/AdminShell.swift"), encoding: .utf8)) ?? ""
     let refusal = "/usr/local/bin/tally is not a symlink Tally installed, so nothing was removed."
     check("the store source is readable from this suite", !store.isEmpty)
     check("the refusal sets an error rather than returning quietly",
@@ -352,7 +355,8 @@ func runCLIToolChecks(tmp: URL) throws {
 
     // (h) The shape of the privileged command and of the press.
     check("paths and the prompt reach AppleScript as argv, never spliced into its source",
-          store.contains("quoted form of (item 1 of argv)") && store.contains("last item of argv")
+          admin.contains("quoted form of (item 1 of argv)") && admin.contains("last item of argv")
+              && store.contains("AdminShell.run(script: script, arguments: paths")
               && !store.contains("ln -sfh \\(") && !store.contains("mkdir -p \\(directory"))
     check("a failure that is not the administrator's keeps the plain sentence, and the other one does not",
           store.contains("guard let block = Self.linkNeedsElevation(error) else { throw error }"))

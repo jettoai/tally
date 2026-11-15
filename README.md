@@ -383,6 +383,13 @@ Your other Macs and Linux boxes are sitting idle while this one grinds through a
   already gave on an existing account. A merge, never a replacement; a file it cannot parse is
   refused rather than rewritten; a home that has been through the wizard is left byte for byte.
   Never a credential, and never a scan for other homes to repair.
+- **One opt-in root helper, for one purpose.** When a process such as `fseventsd` stays at full CPU, Tally
+  writes an evidence file under `~/.tally/logs/process-forensics/`. Capturing `sample` and `fs_usage` of a
+  root-owned process needs root, so Settings (or `tally forensics setup`) can install a helper once: the
+  system's own password window runs it, Tally never sees the password, and exactly two root-owned files are
+  written, `/Library/PrivilegedHelperTools/ai.jetto.tally.forensics` and `/etc/sudoers.d/tally-forensics`.
+  The helper takes one process number and runs only those two read-only tools. It stays off until you set it
+  up, and `tally forensics remove` (or the Remove button in Settings) takes both files away.
 - **One poller, ever.** Only the menu-bar app runs the CLIs (every minute by default,
   relaxable to 2/5/15). The `tally` launcher reads a local snapshot
   (`~/.tally/snapshot.json`: percentages and paths, never tokens), so opening ten terminals

@@ -54,6 +54,11 @@ enum ProcessForensicsReaders {
     /// whether `sample` can work.
     static func canRead(_ pid: Int32) -> Bool { writtenBytes(pid) != nil }
 
+    /// The helper is installed and `sudo -n -l` lets this account run it without a password.
+    static func rootHelperAvailable() -> Bool {
+        FileManager.default.fileExists(atPath: ProcessForensicsPrivilege.wrapperPath) && ProcessForensicsPrivilege.sudoAllows()
+    }
+
     private static func allPids() -> [pid_t] {
         let count = proc_listallpids(nil, 0)
         guard count > 0 else { return [] }
@@ -163,7 +168,9 @@ enum ProcessForensicsReaders {
             fsEvents: { fsEvents(seconds: seconds) },
             writers: { writers(seconds: seconds) },
             threads: { run("/bin/ps", ["-M", "-p", String($0)], timeout: 5) },
-            registrations: { registrations() })
+            registrations: { registrations() },
+            rootHelper: { rootHelperAvailable() },
+            privileged: { run("/usr/bin/sudo", ["-n", ProcessForensicsPrivilege.wrapperPath, String($0)], timeout: seconds + 60) })
     }
 
     // MARK: - the folder

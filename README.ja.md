@@ -398,6 +398,14 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
   なく、解析できないファイルは書き換えずに拒否し、ウィザードを終えた home はバイト単位で
   そのまま残します。資格情報には決して触れず、他の home をスキャンして修復することも
   決してありません。
+- **用途が一つだけの、任意の root ヘルパー。** `fseventsd` のようなプロセスが CPU を使い切り続けると、
+  Tally は `~/.tally/logs/process-forensics/` に証拠ファイルを残します。root 所有のプロセスの
+  `sample` と `fs_usage` を取るには root 権限が必要なので、設定画面（または `tally forensics setup`）から
+  ヘルパーを一度だけインストールできます。実行するのはシステム自身のパスワードウインドウで、
+  Tally はパスワードを見ません。書き込む root 所有のファイルは
+  `/Library/PrivilegedHelperTools/ai.jetto.tally.forensics` と `/etc/sudoers.d/tally-forensics` の 2 つだけです。
+  ヘルパーが受け取るのはプロセス番号 1 つで、実行するのはその 2 つの読み取り専用ツールだけです。
+  設定するまでは無効で、`tally forensics remove`（または設定画面の「削除」ボタン）で 2 つとも消えます。
 - **ポーリングは常にひとつ。** CLI を実行するのはメニューバーアプリだけです（デフォルト
   1 分間隔、2／5／15 分に緩和可能）。`tally` ランチャーはローカルのスナップショット
   （`~/.tally/snapshot.json`：パーセンテージとパスのみ、トークンは決して含まない）を

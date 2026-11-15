@@ -11,7 +11,8 @@ import Foundation
 // (fseventsd) the file carries what an ordinary user can read: the paths the whole machine is
 // writing, who in this account writes most, the process's threads, and (fseventsd only) who keeps
 // registering listeners with it. The header says so (`privilege=none missing=root`), so a missing
-// stack reads as a permission gap and not as a failed capture.
+// stack reads as a permission gap and not as a failed capture. With the one-time root helper
+// installed (ProcessForensicsPrivilege.swift) the same file also carries `sample` and `fs_usage`.
 //
 // THE FILE IS ALWAYS WRITTEN, even when every probe failed: the log line and the banner name it
 // before it exists, and a name pointing at nothing is worse than a file that says why it is empty.
@@ -52,6 +53,11 @@ struct ProcessForensicsProbes: Sendable {
     var writers: @Sendable () -> Result<String, ProcessForensicsFailure>
     var threads: @Sendable (Int32) -> Result<String, ProcessForensicsFailure>
     var registrations: @Sendable () -> Result<String, ProcessForensicsFailure>
+    /// Whether `sudo -n -l` lets this account run the root helper (`tally forensics setup`): the one way
+    /// to get `sample` and `fs_usage` of a process that is not this account's.
+    var rootHelper: @Sendable () -> Bool = { false }
+    var privileged: @Sendable (Int32) -> Result<String, ProcessForensicsFailure> =
+        { _ in .failure(ProcessForensicsFailure(reason: "no root helper")) }
 }
 
 struct ProcessForensicsFailure: Error, Equatable, Sendable { var reason: String }
@@ -155,8 +161,11 @@ enum ProcessForensicsLogic {
     /// Blocking: call it off the main thread.
     static func compose(_ plan: ProcessForensicsPlan, probes: ProcessForensicsProbes) -> String {
         let own = probes.canRead(plan.pid)
+        // Asked at capture time, so a rule removed since the alarm falls back to the no-root file.
+        let root = !own && probes.rootHelper()
         var queued: [(String, ProcessForensicsJob)] = []
         if own { queued.append(("sample", { probes.sample(plan.pid) })) }
+        if root { queued.append(("sample and fs_usage (root helper)", { probes.privileged(plan.pid) })) }
         queued.append(("fsevents paths (machine-wide)", { probes.fsEvents() }))
         queued.append(("writes by this account", { probes.writers() }))
         if !own {
@@ -174,6 +183,7 @@ enum ProcessForensicsLogic {
         text += "over_since=\(stamp(plan.since))"
         if let percent = plan.percent { text += " pct=\(Int(percent.rounded()))" }
         text += own ? "\nprivilege=own\n"
+            : root ? "\nprivilege=root (sample, fs_usage through the Tally evidence helper)\n"
             : "\nprivilege=none missing=root (sample, fs_usage need root)\n"
         for (job, result) in zip(jobs, results.all) {
             text += section(job.0, result ?? .failure(ProcessForensicsFailure(reason: "not run")))

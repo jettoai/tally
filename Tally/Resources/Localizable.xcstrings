@@ -30154,6 +30154,146 @@
         }
       }
     },
+    "Root evidence for runaway system processes": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失控系統行程的 root 取證"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失控系统进程的 root 取证"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暴走したシステムプロセスの root 証拠採取"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폭주하는 시스템 프로세스의 root 증거 수집"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrolden çıkan sistem süreçleri için root kanıtı"
+          }
+        }
+      }
+    },
+    "Lets Tally run sample and fs_usage as root when a system process such as fseventsd is stuck at full CPU, so the evidence file can say what it was doing. Needs your administrator password once, typed into the system's own window. Only those two read-only tools can run, and Remove takes it all away.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fseventsd 這類系統行程卡在滿載時，讓 Tally 以 root 執行 sample 與 fs_usage，取證檔才能說明它在做什麼。只需在系統自己的視窗輸入一次管理員密碼。只能執行這兩個唯讀工具，移除會把一切清掉。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fseventsd 这类系统进程卡在满载时，让 Tally 以 root 运行 sample 和 fs_usage，取证文件才能说明它在做什么。只需在系统自己的窗口输入一次管理员密码。只能运行这两个只读工具，移除会把一切清掉。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fseventsd のようなシステムプロセスが CPU を使い切ったまま止まらないとき、Tally が root で sample と fs_usage を実行し、何をしていたかを証拠ファイルに残せるようにします。管理者パスワードの入力は、システム自身のウインドウで一度だけです。実行できるのはこの 2 つの読み取り専用ツールだけで、削除すればすべて元に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fseventsd 같은 시스템 프로세스가 CPU를 끝까지 쓰며 멈추지 않을 때 Tally가 root로 sample과 fs_usage를 실행해, 증거 파일에 무엇을 하고 있었는지 남길 수 있게 합니다. 관리자 암호는 시스템 자체 창에 한 번만 입력합니다. 실행되는 것은 이 두 읽기 전용 도구뿐이며, 제거하면 모두 사라집니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fseventsd gibi bir sistem süreci tam CPU'da takılı kaldığında Tally'nin sample ve fs_usage araçlarını root olarak çalıştırmasına izin verir; böylece kanıt dosyası sürecin ne yaptığını anlatabilir. Yönetici parolası yalnızca bir kez, sistemin kendi penceresine yazılır. Yalnızca bu iki salt okunur araç çalışabilir ve Kaldır her şeyi geri alır."
+          }
+        }
+      }
+    },
+    "Tally needs administrator rights to install the helper that captures evidence of a runaway system process.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要管理員權限，才能安裝擷取失控系統行程證據的輔助程式。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要管理员权限，才能安装捕获失控系统进程证据的辅助程序。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally が暴走したシステムプロセスの証拠を採取する補助プログラムをインストールするには、管理者権限が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 폭주하는 시스템 프로세스의 증거를 수집하는 도우미를 설치하려면 관리자 권한이 필요합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally'nin kontrolden çıkan bir sistem sürecinin kanıtını toplayan yardımcıyı kurması için yönetici hakları gerekir."
+          }
+        }
+      }
+    },
+    "Tally needs administrator rights to remove the helper that captures evidence of a runaway system process.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要管理員權限，才能移除擷取失控系統行程證據的輔助程式。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 需要管理员权限，才能移除捕获失控系统进程证据的辅助程序。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally が暴走したシステムプロセスの証拠を採取する補助プログラムを削除するには、管理者権限が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 폭주하는 시스템 프로세스의 증거를 수집하는 도우미를 제거하려면 관리자 권한이 필요합니다."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally'nin kontrolden çıkan bir sistem sürecinin kanıtını toplayan yardımcıyı kaldırması için yönetici hakları gerekir."
+          }
+        }
+      }
+    },
     "Process running hot: %@": {
       "extractionState": "manual",
       "localizations": {

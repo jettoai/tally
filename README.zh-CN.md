@@ -328,6 +328,13 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
   那一个 home 的状态文件，Tally 新建的 home 也会预先带入你在既有账号上已经回答过的文件夹
   信任答案。只合并，绝不整份覆盖；解析不了的文件会直接拒写，而不是被改写；已经跑过向导
   的 home 会原封不动、逐字节保留。永不碰凭证，也永不扫描其他 home 去修补。
+- **一个可选启用的 root 辅助程序，只做一件事。** 当 `fseventsd` 这类进程持续满载，Tally 会在
+  `~/.tally/logs/process-forensics/` 留一份取证文件。要捕获 root 进程的 `sample` 与 `fs_usage` 需要
+  root 权限，所以设置页（或 `tally forensics setup`）可以一次性安装一个辅助程序：由系统自己的密码
+  窗口执行，Tally 看不到密码，只会写入两个 root 拥有的文件：
+  `/Library/PrivilegedHelperTools/ai.jetto.tally.forensics` 与 `/etc/sudoers.d/tally-forensics`。
+  辅助程序只接收一个进程编号，只运行那两个只读工具。你不设置就一直关闭，
+  `tally forensics remove`（或设置页的「移除」按钮）会把两个文件都删掉。
 - **永远只有一个轮询者。** 只有菜单栏应用会执行 CLI（默认每 1 分钟，可放宽到 2／5／15 分钟）。
   `tally` 启动器只读本机快照（`~/.tally/snapshot.json`，只有百分比和路径、绝无 token），
   开十个终端也不多读一次。

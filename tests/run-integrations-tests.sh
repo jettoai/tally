@@ -38,7 +38,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/projectstatuslinechecks.swift Tally/Core/ProjectStatusLine.swift \
   Tally/Core/CodexSessionHooks.swift Tally/Stores/IntegrationsCodexSession.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Core/ClaudeJSONFormat.swift Tally/Stores/IntegrationsShim.swift \
-  Tally/Stores/IntegrationsCLITool.swift \
+  Tally/Stores/IntegrationsCLITool.swift Tally/Core/AdminShell.swift \
   Tally/Stores/IntegrationsSharedHarness.swift \
   Tally/Core/ShareExisting.swift Tally/Core/SharedHarness.swift Tally/Core/PathIdentity.swift \
   Tally/Core/AddAccount.swift \

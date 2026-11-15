@@ -380,6 +380,13 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
   없는 파일은 다시 쓰지 않고 거부하며, 마법사를 거친 home은 바이트 단위로 그대로
   남겨 둡니다. 자격 증명은 절대 건드리지 않고, 다른 home을 스캔해 고치는 일도 절대
   없습니다.
+- **목적이 하나뿐인 선택형 root 도우미.** `fseventsd` 같은 프로세스가 CPU를 계속 끝까지 쓰면 Tally는
+  `~/.tally/logs/process-forensics/`에 증거 파일을 남깁니다. root 소유 프로세스의 `sample`과 `fs_usage`를
+  얻으려면 root 권한이 필요하므로, 설정 화면(또는 `tally forensics setup`)에서 도우미를 한 번만 설치할 수
+  있습니다. 시스템 자체의 암호 창이 실행하며 Tally는 암호를 보지 못하고, root 소유 파일은
+  `/Library/PrivilegedHelperTools/ai.jetto.tally.forensics`와 `/etc/sudoers.d/tally-forensics` 두 개만 씁니다.
+  도우미는 프로세스 번호 하나만 받고 그 두 읽기 전용 도구만 실행합니다. 직접 설정하기 전에는 꺼져 있으며,
+  `tally forensics remove`(또는 설정 화면의 「제거」 버튼)로 두 파일을 모두 지웁니다.
 - **폴링은 언제나 하나.** CLI를 실행하는 것은 메뉴 막대 앱뿐입니다(기본 1분 간격, 2/5/15분으로
   완화 가능). `tally` 런처는 로컬 스냅숏(`~/.tally/snapshot.json`: 퍼센트와 경로만, 토큰은
   절대 없음)만 읽으므로 터미널을 열 개 열어도 추가 읽기는 없습니다.

@@ -111,7 +111,8 @@ final class ProcessCPUWatchMonitor {
                 let file = ProcessForensicsLogic.fileName(pid: event.pid, name: name, at: now)
                 plans.append(ProcessForensicsPlan(pid: event.pid, name: name, path: event.path, percent: event.percent,
                                                   since: event.since, identity: id, fileName: file, capturedAt: now))
-                events[index].evidence = .file(file, partial: !ProcessForensicsReaders.canRead(event.pid))
+                let inspectable = ProcessForensicsReaders.canRead(event.pid) || ProcessForensicsReaders.rootHelperAvailable()
+                events[index].evidence = .file(file, partial: !inspectable)
             }
         }
         for event in events {

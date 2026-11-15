@@ -151,11 +151,7 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(PanelStyle.chipInk)
             .tallyTooltip(ReloadAction.tooltip(ReloadReadinessStore.shared.readiness))
-            // View options: every layout dimension behind one footer icon. A popover card rather
-            // than a native menu, because the column count is now a row of layout tiles - a picture
-            // of each layout beats five numbers, and a menu can only list text. The keyboard and
-            // VoiceOver affordances a menu would have brought for free are carried by the tiles'
-            // own help / accessibility labels instead.
+            // View options: the panel's display switches behind one footer icon.
             Button {
                 showViewOptions.toggle()
             } label: {
@@ -173,7 +169,7 @@ extension PopoverRootView {
             // is up (`ViewOptionsAnchor`). Harmless on the popover, which uses neither.
             .viewOptionsAnchor(viewOptionsAnchor)
             // The card carries its own callout layer, whichever way it is presented: it is a
-            // separate presentation, so the layout tiles inside read "hosted" and skip the
+            // separate presentation, so the controls inside read "hosted" and skip the
             // system-tooltip fallback, while their preference never travels back OUT to the panel's
             // layer - the hover was answered with nothing at all. One layer per presentation is what
             // closes that (see `TallyTooltip`).
@@ -196,8 +192,8 @@ extension PopoverRootView {
                 ViewOptionsCard.shared.present(
                     host: host, anchor: viewOptionsAnchor,
                     // Rebuilt on every pass of the card's own body, so the controls in it that
-                    // change what the card shows (density changes the column tiles, the gauge switch
-                    // greys the rows under it) are read again rather than frozen at opening.
+                    // change what the card shows (the gauge switch greys the rows under it) are
+                    // read again rather than frozen at opening.
                     content: { AnyView(viewOptions.tallyTooltipLayer()) },
                     // The card can go without this button being pressed - a press anywhere else,
                     // Escape - and the button has to stop reading as lit when it does.
@@ -266,50 +262,11 @@ extension PopoverRootView {
         .background { widthProbe { footerWidths.icons = $0 } }
     }
 
-    /// The view-options card, in the cards' own spacing vocabulary: the layout tiles first (the
-    /// dimension people come here to change), then the two switches that decide what is on the
-    /// panel at all, then what the gauges render. Same order and same words as the Settings pane's
-    /// display rows, so neither surface teaches a vocabulary the other contradicts.
+    /// The view-options card, in the cards' own spacing vocabulary: the switches that decide what is
+    /// on the panel at all, then what the gauges render. Same order and same words as the Settings
+    /// pane's display rows, so neither surface teaches a vocabulary the other contradicts.
     var viewOptions: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
-                Text(L("Layout")).font(.caption).foregroundStyle(.secondary)
-                // THE PAGE IN FRONT OF THE USER IS THE PAGE THIS EDITS. The session board has its
-                // own count, spent on the width its CARDS are laid out at rather than on the
-                // surface, which is one width whichever page is up (`sessionsBoardWidth`,
-                // `PopoverRootView.popoverWidth`); and density is not a word
-                // it speaks at all - a card or a row is what an ACCOUNT is drawn as - so offering
-                // that switch here would be a control that changes nothing on screen.
-                if tab == .sessions {
-                    LayoutColumnPicker(selection: $settings.sessionsColumns,
-                                       maxColumns: SettingsStore.maxSessionsColumns,
-                                       atMost: true)
-                    // WHY A NUMBER HERE IS A MAXIMUM, said on the card rather than left to be
-                    // discovered: this board lives in a width the Usage pages decide, so a panel one
-                    // comfortable row wide lays out one column whatever is picked. The tiles all
-                    // stay selectable - a preference is kept even where today's width cannot show it
-                    // off, and it takes effect the moment the panel is wider - and this line is what
-                    // keeps that from reading as a control that did nothing (Albert, 2026-08-18).
-                    Text(L("Panel width follows the Usage pages. Auto takes the columns that fit when the board is opened, and a number is the most it will use."))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    // Density first, then the count: what each element IS comes before how many of
-                    // them fit. The footer's own used/left switch is this control, so the card
-                    // offers one vocabulary for "pick one of two views" rather than a second
-                    // hand-rolled one.
-                    NeutralSegmentedPicker(selection: $settings.panelDensity,
-                                           options: PanelDensity.allCases,
-                                           size: .small) { $0 == .cards ? L("Compact") : L("Detailed") }
-                    // One picker, two remembered numbers: it edits the count of whichever density is
-                    // on screen (`densityColumns`), so switching density restores that density's own
-                    // layout instead of carrying a number chosen for the other one.
-                    LayoutColumnPicker(selection: $settings.densityColumns,
-                                       maxColumns: settings.densityMaxColumns)
-                }
-            }
-            Divider()
             // The two strips' own switches, the same ones the Settings pane carries: they decide
             // whether the gauge and the advisor are on the panel at all, which is the question that
             // comes before how the gauges are drawn. Reaching Settings to turn a strip off was the

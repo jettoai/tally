@@ -226,9 +226,6 @@ struct PopoverRootView: View {
             sessionLiftPreview
         }
         .coordinateSpace(name: Self.reorderSpace)
-        // The colour haloes behind the Detailed cards (PanelSkin.swift): over the host's glass, under
-        // every control, and blind to the pointer.
-        .background { skinHalos }
         // Hover callouts for the whole surface, above every card and outside the cards' scroll clip
         // (see TallyTooltip). Held back while a card is being dragged: the anchors are moving.
         .tallyTooltipLayer(suppressed: cardLift != nil || sessionLift != nil)
@@ -302,17 +299,13 @@ struct PopoverRootView: View {
         }
     }
 
-    /// How many card columns. An explicit 1/2/3/4 is a width the user chose and is second-guessed
-    /// on one count only: what the display can seat (see `PanelGeometry.seated`). Folding cards
-    /// shrinks the panel's height only (want it narrow? that's what the view menu is for). Auto is
-    /// the mode that delegates layout to the system, so there it follows what's actually visible:
-    /// two columns once any provider shows more than one card, a single narrow column otherwise -
+    /// How many card columns, bounded by what the display can seat (see `PanelGeometry.seated`).
+    /// Folding cards shrinks the panel's height only. It follows what's actually visible: two
+    /// columns once any provider shows more than one card, a single narrow column otherwise -
     /// including the fully folded gauges-only view.
     var columnCount: Int {
-        let chosen = (1 ... 4).contains(settings.panelColumns)
-            ? settings.panelColumns
-            : (Dictionary(grouping: visibleAccounts, by: \.providerID).values.contains { $0.count > 1 }
-                ? 2 : 1)
+        let chosen = Dictionary(grouping: visibleAccounts, by: \.providerID).values.contains { $0.count > 1 }
+            ? 2 : 1
         return PanelGeometry.seated(chosen, columnWidth: PanelGeometry.cardColumnWidth,
                                     in: usableScreenWidth)
     }

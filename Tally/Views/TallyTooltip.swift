@@ -79,7 +79,7 @@ private struct TallyTooltipKey: PreferenceKey {
 }
 
 /// Whether a `tallyTooltipLayer()` is hosting callouts above this subtree. Read by every target so
-/// a view shared between a surface that has a layer and one that does not (the layout tiles sit in
+/// a view shared between a surface that has a layer and one that does not (a control that sits in
 /// the panel's view-options card AND in the Settings pane) still answers a hover on both.
 ///
 /// It is inherited across a `.popover`, while the preference the targets publish is NOT: the

@@ -86,10 +86,8 @@ let chipOnPanel = laid(onPanel) { $0.chip }
 let chipOnFooter = laid(onFooter) { $0.chip }
 let thumb = laid(laid(onPanel) { $0.seg }) { $0.segOn }
 
-func gradientEnds(_ name: String, _ get: @escaping (PanelPalette.Skin) -> PanelPalette.Gradient) -> [Element] {
-    [Element(name: name, ink: { get($0.skin).from }, backgrounds: [onCard, underBar], minimum: marks),
-     Element(name: name, ink: { get($0.skin).to }, backgrounds: [onCard, underBar], minimum: marks)]
-}
+/// The meter palette an appearance draws with (the skin carries only the groove; the states are MeterPalette's).
+func meter(_ m: PanelPalette.Appearance) -> MeterPalette { m.text == PanelPalette.dark.text ? .dark : .light }
 
 let elements: [Element] = [
     Element(name: "Violet pill", ink: { $0.skin.violetPill.ink }, backgrounds: [pillOnPanel { $0.violetPill }], minimum: words),
@@ -129,9 +127,16 @@ let elements: [Element] = [
     Element(name: "Tile icon (non-text)", ink: { _ in 0xFFFFFF },
             backgrounds: [{ mode, _, _, _ in PanelPalette.rgb(mode.skin.tile.from) },
                           { mode, _, _, _ in PanelPalette.rgb(mode.skin.tile.to) }], minimum: marks),
-] + gradientEnds("Ring arc (non-text)") { $0.claude } + gradientEnds("Ring arc (non-text)") { $0.codex }
-  + gradientEnds("Ring arc (non-text)") { $0.violet } + gradientEnds("Ring arc (non-text)") { $0.amber }
-  + gradientEnds("Ring arc (non-text)") { $0.red }
+    Element(name: "Ring arc (non-text)", ink: { meter($0).normal }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Ring arc (non-text)", ink: { meter($0).warning }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Ring arc (non-text)", ink: { meter($0).critical }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Ring arc (non-text)", ink: { meter($0).exhausted }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Bar fill (non-text)", ink: { meter($0).normal }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Bar fill (non-text)", ink: { meter($0).warning }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Bar fill (non-text)", ink: { meter($0).critical }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Bar fill (non-text)", ink: { meter($0).exhausted }, backgrounds: [onCard, underBar], minimum: marks),
+    Element(name: "Usage number, red", ink: { meter($0).alarmInk }, backgrounds: [onCard, hotCard], minimum: words),
+]
 
 /// Every desktop x gradient stop x {no halo, each halo at its peak}.
 func worstContrast(_ element: Element, _ mode: PanelPalette.Appearance) -> Double {
@@ -333,6 +338,61 @@ let measures: [(String, String)] = [
 ]
 for (name, value) in measures { print("  \(name)=\(value)") }
 check(PanelMetrics.identityColumnWidth(columns: columns) > 0, "the name column is not empty at \(columns) windows")
+
+// ONE METER PALETTE (B-4059, design B): the numbers Albert picked, each clearing its own background,
+// and every surface that draws a bar or a ring reading them rather than a colour of its own.
+print("one meter palette")
+check(MeterPalette.dark.normal == 0x3DCF6A && MeterPalette.dark.warning == 0xFFB224
+          && MeterPalette.dark.critical == 0xFF6259 && MeterPalette.dark.exhausted == 0xFF6259
+          && MeterPalette.dark.alarmInk == 0xFF8A80 && MeterPalette.dark.grooveHex == 0xFFFFFF
+          && MeterPalette.dark.grooveAlpha == 0.12 && MeterPalette.dark.exhaustedGrooveAlpha == 0.30,
+      "dark set is design B")
+check(MeterPalette.light.normal == 0x168A42 && MeterPalette.light.warning == 0xB86E00
+          && MeterPalette.light.critical == 0xD92D20 && MeterPalette.light.exhausted == 0xD92D20
+          && MeterPalette.light.alarmInk == 0xB3261E && MeterPalette.light.grooveHex == 0x000000
+          && MeterPalette.light.grooveAlpha == 0.08 && MeterPalette.light.exhaustedGrooveAlpha == 0.18,
+      "light set is design B")
+check(MeterPalette.smallRingTrackAlpha == 0.28 && MeterPalette.smallRingExhaustedTrackAlpha == 0.45,
+      "the 22pt rings' track opacities")
+for (name, set, base) in [("dark", MeterPalette.dark, UInt32(0x000000)), ("light", MeterPalette.light, UInt32(0xFFFFFF))] {
+    for (state, hex) in [("plenty", set.normal), ("low", set.warning), ("near empty", set.critical), ("used up", set.exhausted)] {
+        let c = PanelPalette.contrast(PanelPalette.rgb(hex), PanelPalette.rgb(base))
+        check(c >= 3, "\(name) \(state) fill \(String(format: "%.2f", c)) >= 3 on its own background")
+    }
+    let ink = PanelPalette.contrast(PanelPalette.rgb(set.alarmInk), PanelPalette.rgb(base))
+    check(ink >= 4.5, "\(name) alarm figure \(String(format: "%.2f", ink)) >= 4.5")
+}
+check(PanelPalette.dark.skin.track.hex == MeterPalette.dark.grooveHex
+          && PanelPalette.dark.skin.track.alpha == MeterPalette.dark.grooveAlpha
+          && PanelPalette.light.skin.track.hex == MeterPalette.light.grooveHex
+          && PanelPalette.light.skin.track.alpha == MeterPalette.light.grooveAlpha,
+      "the skin's groove is the meter palette's")
+// Every surface that draws a meter reads the one palette, and none keeps a colour of its own.
+let meterSites: [(String, [String])] = [
+    ("Tally/Views/AccountListRowView+Meters.swift", ["metric.severity.color", "metric.severity.groove", "figureInk"]),
+    ("Tally/Views/PoolRingView.swift", ["severity.color", "severity.groove", "figureInk"]),
+    ("Tally/Views/ProviderCardHeader.swift", ["PoolRingView(fraction: shown / 100, severity: severity,"]),
+    ("Tally/MenuBar/MenuBarStrip.swift", ["severity.color(in: scheme)", "smallRingTrackOpacity"]),
+    ("Tally/Views/PinnedCompactView.swift", ["severity.color", "smallRingTrackOpacity"]),
+    ("Tally/Views/FleetStripView.swift", ["severity.color", "severity.groove"]),
+]
+let ownColours = ["brandGradient", "LinearGradient(", "PanelStyle.track", "PanelStyle.red", "PanelStyle.amber",
+                  "TallyColor.normal", "TallyColor.warning", "TallyColor.critical", ".opacity(0.28)"]
+for (file, needs) in meterSites {
+    let source = read(file)
+    check(!source.isEmpty && needs.allSatisfy { source.contains($0) }, "\(file) reads the meter palette")
+    check(ownColours.allSatisfy { !source.contains($0) }, "\(file) keeps no meter colour of its own")
+}
+let rowSource = read("Tally/Views/AccountListRowView.swift")
+check(rowSource.contains(".fill(MetricSeverity.exhausted.color)") && !rowSource.contains("PanelStyle.red"),
+      "the spent row's wall is the meter palette's spent red")
+let styleSource = read("Tally/Views/TallyVisualStyle.swift")
+check(["static let normal = Color(nsColor: MeterColor.dynamic { $0.normal })",
+       "static let warning = Color(nsColor: MeterColor.dynamic { $0.warning })",
+       "static let critical = Color(nsColor: MeterColor.dynamic { $0.critical })",
+       "static let exhausted = Color(nsColor: MeterColor.dynamic { $0.exhausted })"].allSatisfy { styleSource.contains($0) },
+      "the shared state colours are the meter palette's")
+check(!read("Tally/Views/PanelStyle.swift").contains("brandGradient"), "the panel has no brand gradient left")
 
 if failures > 0 { print("\(failures) assertion(s) failed"); exit(1) }
 print("ALL PASS")

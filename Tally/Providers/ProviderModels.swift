@@ -10,8 +10,11 @@ enum MetricKind: String, Sendable, Codable, Hashable {
 
 /// Provider-reported severity. Preferring the provider's own value over a local threshold means
 /// the colour matches exactly what the vendor's dashboard shows.
+/// The raw value is written to the last-good cache (the app's own defaults, LastGoodCache); a build older
+/// than "exhausted" fails to decode it and starts from an empty cache, the same path as damaged data.
+/// snapshot.json carries no severity.
 enum MetricSeverity: String, Sendable, Codable, Hashable {
-    case normal, warning, critical, unknown
+    case normal, warning, critical, exhausted, unknown
 
     init(apiValue: String?) {
         switch apiValue?.lowercased() {
@@ -22,14 +25,20 @@ enum MetricSeverity: String, Sendable, Codable, Hashable {
         }
     }
 
-    /// Severity by how much is left: under 20% remaining is critical (red), under 50% is warning
-    /// (amber). Keyed on remaining so the thresholds read the way a user thinks about a quota.
+    /// Severity by how much is left: nothing left (100% used or more) is exhausted, under 20% remaining
+    /// is critical (red), under 50% is warning (amber). Keyed on remaining so the thresholds read the
+    /// way a user thinks about a quota.
     static func fromUsedPercent(_ percent: Double) -> MetricSeverity {
+        if percent >= 100 { return .exhausted }
         let remaining = 100 - percent
         if remaining < 20 { return .critical }
         if remaining < 50 { return .warning }
         return .normal
     }
+
+    /// Critical or past it: the states whose figure is drawn in the alarm ink and whose card says
+    /// "Near limit" / "Limit reached".
+    var isAtOrPastCritical: Bool { self == .critical || self == .exhausted }
 }
 
 /// One normalized usage window. Every provider maps its response into these so the UI is

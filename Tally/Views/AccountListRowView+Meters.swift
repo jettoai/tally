@@ -24,7 +24,10 @@ extension AccountListRowView {
     /// because spelling them out per window is what makes the card as tall as it is.
     func meterCluster(_ metric: UsageMetric, emphasized: Bool = false) -> some View {
         let passed = usage.resetPassed(metric)
-        let figure = UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
+        let spent = metric.severity == .exhausted && !passed && !facts.isSettlingReset
+        // A spent window says so in words: "0%" and "100%" read as two different facts in the two
+        // display modes, "Used up" reads the same in both (B-4059).
+        let figure = spent ? L("Used up") : UsageFormat.percent(metric, mode: settings.displayMode, resetPassed: passed)
         let reset = UsageFormat.resetState(metric, resetPassed: passed)
         return VStack(spacing: Self.clusterGap) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
@@ -51,34 +54,34 @@ extension AccountListRowView {
 
     func figureColor(_ metric: UsageMetric, resetPassed: Bool) -> Color {
         if resetPassed { return PanelStyle.text2 }
-        return metric.severity == .critical && !facts.isSettlingReset ? PanelStyle.lowInk : PanelStyle.text
+        if facts.isSettlingReset { return PanelStyle.text }
+        return metric.severity.figureInk ?? PanelStyle.text
     }
 
     /// A spent window's countdown is red (it is what the reader is waiting for), and a window that has
     /// not started its clock yet says so in green.
     private func resetTint(_ metric: UsageMetric, reset: UsageFormat.ResetState, resetPassed: Bool) -> Color? {
         if case .notStarted = reset { return PanelStyle.green }
-        return metric.usedPercent >= 100 && !resetPassed && !facts.isSettlingReset ? PanelStyle.red : nil
+        return metric.usedPercent >= 100 && !resetPassed && !facts.isSettlingReset
+            ? MetricSeverity.exhausted.figureInk : nil
     }
 
     /// Used fills from the left, remaining anchors right - the same boundary the card's bars split
     /// at, so the two densities never draw one number two ways. The track takes the cell's full width
     /// (never under `barWidth`), the fill is measured off the track it is drawn in and wears the
-    /// provider's colour gradient (amber under half left, red under a fifth).
+    /// state's colour from the one meter palette (MeterPalette); a spent window's track turns red.
     func bar(_ metric: UsageMetric, resetPassed: Bool) -> some View {
         let fraction = UsageFormat.fillFraction(metric, mode: settings.displayMode)
         let fillAlignment: Alignment = settings.displayMode == .used ? .leading : .trailing
         return Capsule()
-            .fill(PanelStyle.track)
+            .fill(resetPassed || facts.isSettlingReset ? MetricSeverity.normal.groove : metric.severity.groove)
             .frame(minWidth: Self.barWidth, maxWidth: .infinity)
             .frame(height: Self.barHeight)
             .overlay {
                 GeometryReader { geo in
                     Capsule()
-                        .fill(LinearGradient(colors: resetPassed ? [.clear, .clear]
-                                                : PanelStyle.brandGradient(usage.providerID, severity: metric.severity),
-                                             startPoint: .leading, endPoint: .trailing))
-                        .frame(width: max(2, geo.size.width * fraction), height: Self.barHeight)
+                        .fill(resetPassed ? Color.clear : metric.severity.color)
+                        .frame(width: fraction > 0 ? max(2, geo.size.width * fraction) : 0, height: Self.barHeight)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: fillAlignment)
                 }
             }

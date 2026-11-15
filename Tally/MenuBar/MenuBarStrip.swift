@@ -4,7 +4,8 @@ import SwiftUI
 /// The menu-bar strip, drawn as a single SwiftUI view rendered to an `NSImage`: one ring per pool
 /// with the provider's mark inside, the arc as long as the share of the WEEK that is left, and no
 /// text at all (B-2045). Each ring wears the colour of the panel bar for the same window
-/// (`MetricSeverity.color`: green from 50% left, amber from 20%, red below); the mark inside wears
+/// (`MetricSeverity.color(in:)`, the one meter palette's fixed colour for the bar's scheme: green from 50% left,
+/// amber from 20%, red below, red with a stronger track when spent); the mark inside wears
 /// its provider's brand colour (`ProviderBrand`), or ink where the brand is single-colour; the waiting dot
 /// and the DEV tag are ink, which `MenuBarStripRenderer` picks for the bar's scheme. What each ring
 /// stands for - one account or one provider's pool - is decided in `MenuBarSegments`, and what it
@@ -19,6 +20,9 @@ private struct MenuBarStripView: View {
     var editionText: String? = OverlayApp.menuBarEditionText
     /// The bar's ink for this scheme; also the colour of a ring with no severity to show.
     var ink: Color = .black
+    /// The bar's scheme. The rings take fixed colours for it (`MetricSeverity.color(in:)`): this
+    /// view is rendered off screen, where a dynamic colour has no appearance to resolve against.
+    var scheme: ColorScheme = .dark
     /// Adds a thinner inner ring for the 5-hour window inside each weekly ring.
     var showSession = false
 
@@ -65,10 +69,11 @@ private struct MenuBarStripView: View {
         let ring = PoolRing(segment)
         let color = paint(ring.severity)
         return ZStack {
-            arc(ring.fraction, color: color, inset: 1, lineWidth: 2)
+            arc(ring.fraction, color: color, trackOpacity: ring.severity.smallRingTrackOpacity, inset: 1, lineWidth: 2)
             if showSession {
                 // The 5-hour ring: 1.5 pt wide, 1 pt inside the weekly ring's inner edge.
-                arc(ring.innerFraction, color: paint(ring.innerSeverity), inset: 3.75, lineWidth: 1.5)
+                arc(ring.innerFraction, color: paint(ring.innerSeverity),
+                    trackOpacity: ring.innerSeverity.smallRingTrackOpacity, inset: 3.75, lineWidth: 1.5)
             }
             icon(segment.providerID, size: showSession ? 7 : 10.5,
                  color: ProviderBrand.markHex(for: segment.providerID).map(Self.rgb) ?? ink)
@@ -84,15 +89,16 @@ private struct MenuBarStripView: View {
 
     /// A severity's colour, or ink when there is none to show.
     private func paint(_ severity: MetricSeverity) -> Color {
-        severity == .unknown ? ink : severity.color
+        severity.color(in: scheme) ?? ink
     }
 
     /// A faint full track with the arc over it from 12 o'clock clockwise; nothing to read draws a
     /// dashed track with no arc (the mark stays).
     @ViewBuilder
-    private func arc(_ fraction: Double?, color: Color, inset: CGFloat, lineWidth: CGFloat) -> some View {
+    private func arc(_ fraction: Double?, color: Color, trackOpacity: Double, inset: CGFloat,
+                     lineWidth: CGFloat) -> some View {
         if let fraction {
-            Circle().inset(by: inset).stroke(color, lineWidth: lineWidth).opacity(0.28)
+            Circle().inset(by: inset).stroke(color, lineWidth: lineWidth).opacity(trackOpacity)
             Circle().inset(by: inset).trim(from: 0, to: fraction)
                 .stroke(color, lineWidth: lineWidth)
                 .rotationEffect(.degrees(-90))
@@ -129,7 +135,7 @@ enum MenuBarStripRenderer {
     private static func render(_ segments: [MenuBarSegment], waiting: Bool, showSession: Bool,
                                scheme: ColorScheme) -> CGImage? {
         let renderer = ImageRenderer(content: MenuBarStripView(
-            segments: segments, waiting: waiting, ink: ink(scheme), showSession: showSession))
+            segments: segments, waiting: waiting, ink: ink(scheme), scheme: scheme, showSession: showSession))
         renderer.scale = 2
         return renderer.cgImage
     }
@@ -177,7 +183,7 @@ enum MenuBarStripRenderer {
                               showSession: Bool = false) {
         let renderer = ImageRenderer(content:
             MenuBarStripView(segments: segments, waiting: waiting, devTag: false, ink: ink(.dark),
-                             showSession: showSession)
+                             scheme: .dark, showSession: showSession)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(Color(red: 0.11, green: 0.11, blue: 0.12)))

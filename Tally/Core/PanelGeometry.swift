@@ -90,16 +90,6 @@ enum PanelGeometry {
         return count * card + (count - 1) * gap
     }
 
-    /// A remembered column count, read back into the range that is still on offer: a stored number
-    /// past the highest tile comes back to that tile rather than to a count nothing can select, and
-    /// anything that is not a count at all (zero, a negative, a key that was never written) is auto.
-    ///
-    /// Named once because the ranges move: the compact list used to go to four and now stops at
-    /// three, and every stored count has to survive that without leaving a picker blank.
-    static func storedColumns(_ stored: Int, max limit: Int) -> Int {
-        stored > 0 ? min(stored, limit) : 0
-    }
-
     /// The Detailed panel's width: one column, the same on the popover, the pinned panel and the
     /// window until the window gets a layout of its own.
     static let detailedPanelWidth: CGFloat = 452
@@ -144,9 +134,7 @@ enum PanelGeometry {
     /// AN EXPLICIT COUNT IS THE MOST COLUMNS THE BOARD WILL USE, not a guarantee of that many. The
     /// promise it can keep is about the reading topology - one column is read top to bottom, two are
     /// read side by side - and a width that seats fewer than were asked for is a fact about the
-    /// surface rather than a broken promise. The picker says so in the words it offers the count in
-    /// ("Up to 2 columns", `LayoutColumnPicker`), which is what stops a panel one comfortable row
-    /// wide from highlighting "2" over a board laying out one (Albert, 2026-08-15 and 2026-08-18).
+    /// surface rather than a broken promise.
     ///
     /// AUTO IS RESOLVED HERE RATHER THAN LEFT ADAPTIVE, and what it resolves to is the number of
     /// cards the board was opened with: a lone session takes a column of its own instead of being

@@ -59,39 +59,7 @@ extension SettingsView {
 
     private var panelSection: some View {
         SettingsSection(L("Panel"), symbol: "rectangle.split.3x1") {
-            SettingsRow(title: L("Panel density"), icon: "square.grid.2x2") {
-                // The pane's own segmented control, matching the "Meters show" row rather than the
-                // panel's neutral one: this window has no glass for that variant to be quiet against.
-                Picker("", selection: $settings.panelDensity) {
-                    Text(L("Compact")).tag(PanelDensity.cards)
-                    Text(L("Detailed")).tag(PanelDensity.list)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-            SettingsDivider()
-            SettingsRow(title: L("Panel columns"), icon: "rectangle.split.3x1") {
-                // The same layout tiles the panel's view options show, editing the same per-density
-                // count (`densityColumns`): one control, so the two places that set the column count
-                // cannot describe it two ways, and each density keeps its own number.
-                LayoutColumnPicker(selection: $settings.densityColumns,
-                                   maxColumns: settings.densityMaxColumns, roomy: true)
-            }
-            SettingsDivider()
-            // Directly under the account pages' count, because the two are the same question asked
-            // of two pages: the Sessions board keeps its own answer, and spends it on the CARDS
-            // rather than on the surface - at most that many columns, dividing up the room they are
-            // given and held against the leading edge, inside a panel whose width never changes
-            // with the page in front (`SettingsStore.sessionsColumns`, `PopoverRootView.popoverWidth`).
-            // A number is a maximum here, which is why the tiles are described as "up to".
-            SettingsRow(title: L("Sessions columns"), icon: "list.bullet.rectangle") {
-                LayoutColumnPicker(selection: $settings.sessionsColumns,
-                                   maxColumns: SettingsStore.maxSessionsColumns,
-                                   atMost: true, roomy: true)
-            }
-            SettingsDivider()
-            // Next to the column count: both settings answer "how are the cards laid out", and the
-            // panel's view options carry the same pair behind one footer icon.
+            // How the cards are grouped; the panel's view options carry the same switch.
             SettingsToggleRow(title: L("Group by provider"),
                               subtitle: L("Cards sit in a section per provider instead of one continuous grid."),
                               icon: "square.stack.3d.up",

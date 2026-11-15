@@ -1,6 +1,6 @@
 import SwiftUI
 
-// The panel's skin (B-4169): the gradient glass, the colour haloes, the rim and the card shadow, the
+// The panel's skin (B-4169): the flat black or white glass, the rim and the card shadow, the
 // pill and the round button. Everything here only DRAWS. No gesture, no tooltip, no animation and no
 // hit area of its own: the layers that could sit over a control switch hit testing off, and
 // tests/panelanchors holds that by counting this file's wiring tokens (zero, bar that one).
@@ -23,65 +23,6 @@ struct PanelTintLayer: View {
         } else {
             Rectangle().fill(gradient)
         }
-    }
-}
-
-/// Three soft colour haloes over the glass, at fixed places on the panel (top left, right, bottom
-/// left), as the draft has them. The first two take the colour of the first two providers shown;
-/// the third, bottom left, is always violet. Never takes a press.
-struct PanelHalos: View {
-    /// Provider ids in the order their cards are shown.
-    var brands: [String]
-
-    /// Where each halo sits (share of the panel) and how far it reaches (share of the distance to the
-    /// farthest corner, which is what CSS's `circle at x y` measures).
-    private static let slots: [(x: CGFloat, y: CGFloat, reach: CGFloat)] = [
-        (0.10, 0.14, 0.42), (0.96, 0.46, 0.40), (0.18, 0.96, 0.48),
-    ]
-
-    private func haloIndex(for providerID: String) -> Int? {
-        switch providerID {
-        case "claude": return 0
-        case "codex": return 1
-        default: return nil
-        }
-    }
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                ForEach(Array(halos().enumerated()), id: \.offset) { _, halo in
-                    let slot = Self.slots[halo.slot]
-                    let center = CGPoint(x: slot.x * proxy.size.width, y: slot.y * proxy.size.height)
-                    let dx = max(center.x, proxy.size.width - center.x)
-                    let dy = max(center.y, proxy.size.height - center.y)
-                    let reach = slot.reach * (dx * dx + dy * dy).squareRoot()
-                    Rectangle().fill(RadialGradient(colors: [halo.color, halo.color.opacity(0)],
-                                                    center: UnitPoint(x: slot.x, y: slot.y),
-                                                    startRadius: 0, endRadius: reach))
-                }
-            }
-        }
-        .clipped()
-        .allowsHitTesting(false)
-    }
-
-    /// The haloes to draw: (slot, colour). A provider without a halo colour leaves its slot empty.
-    private func halos() -> [(slot: Int, color: Color)] {
-        var out: [(slot: Int, color: Color)] = []
-        for (position, providerID) in brands.prefix(2).enumerated() {
-            guard let index = haloIndex(for: providerID) else { continue }
-            out.append((position, PanelStyle.skinTone { $0.halos[index] }))
-        }
-        out.append((2, PanelStyle.skinTone { $0.halos[2] }))
-        return out
-    }
-}
-
-extension PopoverRootView {
-    /// The haloes behind the Detailed panel's cards, coloured by the providers in display order.
-    @ViewBuilder var skinHalos: some View {
-        if settings.panelDensity == .list { PanelHalos(brands: accountGroups.map(\.providerID)) }
     }
 }
 

@@ -104,7 +104,7 @@ extension PopoverRootView {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(ready ? TallyColor.normal : TallyColor.ai))
+                        .background(Capsule().fill(ready ? TallyColor.normal : Color(red: 0.30, green: 0.30, blue: 0.32)))
                     }
                     .buttonStyle(.plain)
                     // Nothing a second press could ask for that the first is not already doing,

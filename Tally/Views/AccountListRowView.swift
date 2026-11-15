@@ -108,7 +108,7 @@ struct AccountListRowView: View {
             if isAtLimit {
                 // Inside the wash's rounded end rather than on its edge.
                 UnevenRoundedRectangle(bottomTrailingRadius: 3, topTrailingRadius: 3, style: .continuous)
-                    .fill(PanelStyle.red)
+                    .fill(MetricSeverity.exhausted.color)
                     .frame(width: PanelStyle.wallBarWidth)
                     .padding(.vertical, 7)
                     .padding(.leading, 2)

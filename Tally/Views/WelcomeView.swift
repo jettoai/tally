@@ -466,10 +466,6 @@ private struct WelcomeAccountRow: View {
     }
 
     private func color(_ severity: MetricSeverity) -> Color {
-        switch severity {
-        case .warning: return TallyColor.warning
-        case .critical: return TallyColor.critical
-        case .normal, .unknown: return TallyColor.normal
-        }
+        severity == .unknown ? TallyColor.normal : severity.color
     }
 }

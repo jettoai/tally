@@ -4,5 +4,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/panelcontrast/main.swift Tally/Core/PanelPalette.swift Tally/Core/PanelMetrics.swift Tally/Core/PanelGeometry.swift
+swiftc -o "$out" tests/panelcontrast/main.swift Tally/Core/PanelPalette.swift Tally/Core/MeterPalette.swift Tally/Core/PanelMetrics.swift Tally/Core/PanelGeometry.swift
 "$out"

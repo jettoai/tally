@@ -214,6 +214,9 @@ enum CaptureLaunch {
                                // Qualifies TallyPanelCapture the same way: the session board shows the
                                // "Ghostty is not installed" line (B-4194).
                                "TallyGhosttyMissingPreview",
+                               // Qualifies TallyPanelCapture (Dev or demo data): the surface's view-options
+                               // card is up when the launch opens, so it can be photographed without a click (B-4639).
+                               "TallyViewOptionsOpen",
                                // Qualify TallyMoveToApplicationsPreview (Debug, Dev build or demo data):
                                // where it copies to, a forced failure screen, and pressing Move by itself
                                // so the copy and relaunch run unattended.

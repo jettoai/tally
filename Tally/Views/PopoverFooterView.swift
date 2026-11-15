@@ -199,6 +199,14 @@ extension PopoverRootView {
                     // Escape - and the button has to stop reading as lit when it does.
                     onDismiss: { showViewOptions = false })
             }
+            // -TallyViewOptionsOpen (B-4639): a capture launch opens the card at once, so a picture of the
+            // options needs no click. Dev or demo only, like the flag it qualifies. One turn later, because
+            // the card stands on this button's rect, which exists only once the surface is in its window.
+            .onAppear {
+                guard DemoUsage.isActive || BuildVariant.isDev,
+                      CaptureLaunch.carries("TallyViewOptionsOpen") else { return }
+                DispatchQueue.main.async { showViewOptions = true }
+            }
             Button {
                 StatusItemController.togglePin()
             } label: {

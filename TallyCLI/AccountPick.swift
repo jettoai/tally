@@ -239,11 +239,11 @@ func pinStepAsideRow(_ snapshot: Snapshot?, policy: LaunchPolicy, primaryModel: 
 /// What a launch that stepped aside says, on every surface that launches (`tally claude`'s stderr,
 /// the shim's script).
 func pinStepAsideNotice(_ row: Snapshot.Account, pinnedBy: String) -> String {
-    if row.usageLoginRejected == true && pinnedCannotServe(row) {
-        return "\(row.label) is signed out, so launching on Smart until you sign in again; "
-            + "run /login on it (\(pinnedBy))"
-    }
     if pinnedCannotServe(row) {
+        if row.usageLoginRejected == true {
+            return "\(row.label) is signed out, so launching on Smart until you sign in again; "
+                + "run /login on it (\(pinnedBy))"
+        }
         return "\(row.label) has not returned its quota for several refreshes, so launching on "
             + "Smart until it does; if it persists, run /login on it (\(pinnedBy))"
     }

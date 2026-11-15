@@ -124,9 +124,10 @@ extension PopoverRootView {
         let used = settings.displayMode == .used
         let shown = used ? 100 - pool.averageRemaining : pool.averageRemaining
         let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
+        let caption = severity == .exhausted ? L("Used up") : (used ? L("Used") : L("Left"))
         return PoolRingView(fraction: shown / 100, severity: severity,
                             figure: "\(Int(shown.rounded()))%",
-                            caption: (severity == .exhausted ? L("Used up") : used ? L("Used") : L("Left")).uppercased())
+                            caption: caption.uppercased())
     }
 
     /// Which pool the ring shows and its next refill, ticking a minute at a time like every other

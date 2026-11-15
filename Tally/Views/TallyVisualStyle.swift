@@ -37,8 +37,8 @@ enum TallyColor {
     /// neutral ink, light on a dark panel and near black on a light one (B-4059, no colour accent).
     static let ai = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(srgbRed: 0xD4 / 255, green: 0xD4 / 255, blue: 0xD8 / 255, alpha: 1)
-            : NSColor(srgbRed: 0x3A / 255, green: 0x3A / 255, blue: 0x3C / 255, alpha: 1)
+            ? MeterColor.rgb(0xD4D4D8)
+            : MeterColor.rgb(0x3A3A3C)
     })
     static let critical = Color(nsColor: MeterColor.dynamic { $0.critical })
     /// Spent: 100% used. Drawn with a red groove as well, so it reads apart from `critical` by shape.

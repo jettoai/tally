@@ -63,7 +63,7 @@ extension AccountListRowView {
     private func resetTint(_ metric: UsageMetric, reset: UsageFormat.ResetState, resetPassed: Bool) -> Color? {
         if case .notStarted = reset { return PanelStyle.green }
         return metric.usedPercent >= 100 && !resetPassed && !facts.isSettlingReset
-            ? MetricSeverity.exhausted.figureInk : nil
+            ? TallyColor.alarmInk : nil
     }
 
     /// Used fills from the left, remaining anchors right - the same boundary the card's bars split

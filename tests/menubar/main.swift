@@ -25,11 +25,11 @@ func account(_ id: String, provider: String = "claude", metrics: [UsageMetric],
                  metrics: metrics, refreshedAt: now, error: error, isStale: stale)
 }
 
-/// The app's own resolver, wired the way `UsageStore.focusedModel` wires it: no declared primary
-/// model, so the flagship window leads.
+/// A named model focus for the segment builders (the flagship window leads). The app no longer
+/// names one (`UsageStore.focusedModel` is always nil, the weekly leads); this keeps the segment
+/// tests exercising the named-focus path.
 func flagshipFocus(_ providerID: String, _ available: [String]) -> String? {
-    FleetFocus.focusedModel(.all, primaryModel: nil, available: available,
-                            flagshipOrder: ["fable", "opus"])
+    available.isEmpty ? nil : FleetFocus.flagship(available, order: ["fable", "opus"])
 }
 
 /// No model focus at all - the account-wide weekly leads (the `weekly` gauge focus).

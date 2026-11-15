@@ -263,8 +263,8 @@ extension PopoverRootView {
     }
 
     /// The view-options card, in the cards' own spacing vocabulary: the switches that decide what is
-    /// on the panel at all, then what the gauges render. Same order and same words as the Settings
-    /// pane's display rows, so neither surface teaches a vocabulary the other contradicts.
+    /// on the panel. Same order and same words as the Settings pane's display rows, so neither
+    /// surface teaches a vocabulary the other contradicts.
     var viewOptions: some View {
         VStack(alignment: .leading, spacing: 12) {
             // The two strips' own switches, the same ones the Settings pane carries: they decide
@@ -287,24 +287,6 @@ extension PopoverRootView {
             // Folding cards behind a gauge that is switched off would hide them behind nothing at
             // all, which is the one state the panel must never reach (see `visibleAccounts`).
             .disabled(pooledProviderIDs.isEmpty || !settings.showFleetGauge)
-            Divider()
-            // What the gauges render: every pooled window, one row each (5-hour, weekly,
-            // each model window; the default), or collapsed to a single pool for people who only
-            // ration one budget. The menu-bar number follows the leading pool.
-            VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
-                Text(L("Gauges show")).font(.caption).foregroundStyle(.secondary)
-                Picker("", selection: $settings.gaugeFocus) {
-                    Text(L("All pools")).tag(GaugeFocus.all)
-                    Text(L("Primary model only")).tag(GaugeFocus.primary)
-                    Text(L("Weekly total only")).tag(GaugeFocus.weekly)
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-            // Nothing to configure while there is no gauge to configure. Greyed rather than hidden,
-            // so the card does not change height under the pointer when the switch above is flipped.
-            .disabled(!settings.showFleetGauge)
-            .opacity(settings.showFleetGauge ? 1 : 0.5)
         }
         .padding(TallyMetrics.cardPaddingH)
         .frame(width: 268)

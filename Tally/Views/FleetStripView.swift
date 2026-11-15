@@ -33,16 +33,11 @@ extension PopoverRootView {
         Set(fleetSummaries.filter { $0.headline != nil }.map(\.providerID))
     }
 
-    /// The pools this provider's gauge renders, leading pool first. "All" shows every weekly-cycle
-    /// pool (primary budget + weekly total - both runways at once); the single-pool modes show
-    /// just the focus-resolved one.
+    /// The one pool this provider's gauge renders: the account-wide weekly budget.
     func displayedPools(_ summary: FleetSummary) -> [FleetPool] {
         let focused = UsageStore.focusedModel(providerID: summary.providerID,
                                               available: summary.modelPoolNames)
-        switch settings.gaugeFocus {
-        case .all: return summary.displayPools(focusedModel: focused)
-        case .primary, .weekly: return summary.headline(focusedModel: focused).map { [$0] } ?? []
-        }
+        return summary.headline(focusedModel: focused).map { [$0] } ?? []
     }
 
     var fleetSummaries: [FleetSummary] {
@@ -74,19 +69,6 @@ extension PopoverRootView {
                 }
                 ForEach(pools.indices, id: \.self) { index in
                     poolRow(summary, pools[index], labelWidth: labelWidth)
-                }
-                // "All pools" with no 5-hour reading says so, rather than drawing one row fewer
-                // than the plan above it, which read as a row left out. A provider whose accounts
-                // have no 5-hour window at all (Ultra) is a two-bar provider, so it has no such row.
-                if settings.gaugeFocus == .all, !pools.contains(where: { $0.kind == .session }),
-                   FleetMath.hasSessionWindow(store.accounts, provider: summary.providerID) {
-                    HStack(spacing: Self.fleetRowSpacing) {
-                        Text(L("5-hour pool")).foregroundStyle(Color.secondary)
-                            .frame(width: labelWidth, alignment: .leading)
-                        Text(L("No reading")).foregroundStyle(.tertiary)
-                    }
-                    .font(.footnote)
-                    .lineLimit(1)
                 }
             }
             .tallyTooltip(lazyBlocks: { fleetTooltipBlocks([summary]) }, forced: forcedTooltip)
@@ -180,7 +162,6 @@ extension PopoverRootView {
     private var poolLabelColumnWidth: CGFloat {
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.preferredFont(forTextStyle: .footnote)]
         let names = fleetSummaries.flatMap { displayedPools($0).map(poolDisplayName) }
-            + (settings.gaugeFocus == .all ? [L("5-hour pool")] : [])
         let widest = names.map { ($0 as NSString).size(withAttributes: attributes).width }.max() ?? 0
         return max(Self.poolLabelWidth, ceil(widest))
     }

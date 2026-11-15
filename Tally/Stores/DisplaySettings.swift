@@ -10,19 +10,6 @@ enum DisplayMode: String, Sendable, CaseIterable {
     var toggled: DisplayMode { self == .used ? .remaining : .used }
 }
 
-/// What the fleet gauge shows and which number the menu-bar strip leads with. `all` (default)
-/// renders EVERY pooled window, one row each: the primary-model budget first, the account-wide
-/// weekly after it, any other model window, then the 5-hour session (B-1544); `primary` collapses the
-/// strip to just the primary-model pool (flagship-first when no primary is declared, the smart
-/// launcher's rule); `weekly` pins the account-wide weekly budget alone. The menu bar always
-/// carries one number per window class, so it follows the leading pool. Persisted in
-/// `SettingsStore`; resolution lives in `FleetFocus`.
-enum GaugeFocus: String, Sendable, CaseIterable {
-    case all
-    case primary
-    case weekly
-}
-
 /// What one segment of the menu-bar strip counts. `pooled` (default) gives every provider ONE
 /// segment summing its accounts - the same pool the panel's fleet gauge draws, so the two surfaces
 /// answer with the same figure. `perAccount` gives every visible account its own mark and its own

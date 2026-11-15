@@ -223,15 +223,6 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(groupByProvider, forKey: "groupByProvider") }
     }
 
-    /// Which window the fleet gauge and the menu-bar numbers lead with (see GaugeFocus).
-    var gaugeFocus: GaugeFocus {
-        didSet {
-            UserDefaults.standard.set(gaugeFocus.rawValue, forKey: "gaugeFocus")
-            UsageStore.shared.onChange?()          // the AppKit strip repaints only on a nudge
-            UsageStore.shared.republishSnapshot()  // the CLI's fleet line follows the same focus
-        }
-    }
-
     private init() {
         let defaults = UserDefaults.standard
         enabledProviders = defaults.stringArray(forKey: "enabledProviders").map(Set.init)
@@ -294,7 +285,7 @@ final class SettingsStore {
         pinnedStyle = PinnedStyle(rawValue: defaults.string(forKey: "pinnedStyle") ?? "") ?? .full
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         groupByProvider = defaults.object(forKey: "groupByProvider") as? Bool ?? true
-        gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .all
+        defaults.removeObject(forKey: "gaugeFocus")  // retired picker: the panel always shows the weekly total
     }
 
     func isEnabled(_ providerID: String) -> Bool { enabledProviders.contains(providerID) }

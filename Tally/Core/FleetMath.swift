@@ -131,28 +131,8 @@ struct FleetSummary: Hashable {
     }
 }
 
-/// Which model window (if any) the display should focus - shared by the fleet gauge, the menu-bar
-/// strip and the status line so "the number Tally leads with" is ONE concept. Mirrors the smart
-/// launcher's rule (TallyCLI/Snapshot.swift): a declared primary model constrains only when a
-/// reported window carries it; no declared primary = flagship-first. Pure so the test harness
-/// compiles it standalone; the app passes the launch policy's model and ModelCatalog's tier order.
+/// Model-window name helpers. Pure so the test harness compiles it standalone.
 enum FleetFocus {
-    /// The window name the display leads with, or nil for the account-wide weekly.
-    static func focusedModel(_ focus: GaugeFocus, primaryModel: String?,
-                             available: [String], flagshipOrder: [String]) -> String? {
-        guard !available.isEmpty else { return nil }
-        switch focus {
-        case .weekly:
-            return nil
-        case .all, .primary:
-            let primary = primaryModel?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
-            guard !primary.isEmpty else { return flagship(available, order: flagshipOrder) }
-            // A declared non-flagship primary (e.g. sonnet) matches no reported window → nil →
-            // the weekly budget, the window that primary actually burns.
-            return available.first { matches($0, primary) }
-        }
-    }
-
     /// The highest-tier name by the given order; names matching nothing rank last.
     static func flagship(_ names: [String], order: [String]) -> String? {
         names.min { rank($0, order) < rank($1, order) }

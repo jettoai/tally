@@ -312,10 +312,10 @@ check("T31 the plan has its own title line above the pool rows",
 check("T31 every pool row is labelled with its pool name",
       fleet.contains("Text(poolDisplayName(pool)).foregroundStyle(Color.secondary)")
           && !fleet.contains("if index == 0, let tier = summary.planTier"))
-// T32: "All pools" with no 5-hour reading says so on a row of its own instead of drawing one row fewer.
-check("T32 a missing 5-hour window draws a no-reading row",
-      gaugeBody.contains("!pools.contains(where: { $0.kind == .session })")
-          && fleet.contains("L(\"No reading\")"))
+// T32: "All pools" with no 5-hour reading draws no 5-hour row at all (no "No reading" placeholder row).
+check("T32 a missing 5-hour window draws no 5-hour row",
+      !gaugeBody.contains("!pools.contains(where: { $0.kind == .session })")
+          && !fleet.contains("L(\"No reading\")"))
 // T33: the no-reading row's string ships in every language.
 for key in ["No reading", "add 1 %@ account"] {
     let locs = (strings[key] as? [String: Any])?["localizations"] as? [String: Any] ?? [:]

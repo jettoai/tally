@@ -193,40 +193,14 @@ do {
     expect(beforeRefill == now.addingTimeInterval(3 * 3_600), "dry before the refill stays dry")
 }
 
-// MARK: FleetFocus (gauge focus resolution)
+// MARK: FleetFocus (model-window name helpers)
 
-// 14. The primary-following modes lead with the declared primary: a flagship primary focuses
-// its window (alias matches the versioned name), a non-flagship primary focuses nothing
-// (weekly), and no primary is flagship-first - the smart launcher's rule.
-do {
-    let order = ["fable", "opus", "sonnet", "haiku"]
-    let available = ["Fable 5"]
-    expect(FleetFocus.focusedModel(.primary, primaryModel: "fable", available: available,
-                                   flagshipOrder: order) == "Fable 5",
-           "primary mode + fable primary focuses the Fable window")
-    expect(FleetFocus.focusedModel(.all, primaryModel: "fable", available: available,
-                                   flagshipOrder: order) == "Fable 5",
-           "all mode leads with the same resolution")
-    expect(FleetFocus.focusedModel(.primary, primaryModel: "sonnet", available: available,
-                                   flagshipOrder: order) == nil,
-           "sonnet primary focuses the weekly budget")
-    expect(FleetFocus.focusedModel(.primary, primaryModel: nil, available: available,
-                                   flagshipOrder: order) == "Fable 5",
-           "no declared primary is flagship-first")
-    expect(FleetFocus.focusedModel(.primary, primaryModel: "fable", available: [],
-                                   flagshipOrder: order) == nil,
-           "no model windows means nothing to focus")
-}
-
-// 15. Flagship ranking honors tier order; weekly mode always declines to focus.
+// 15. Flagship ranking honors tier order.
 do {
     let order = ["fable", "opus", "sonnet", "haiku"]
     let available = ["Opus", "Fable 5"]
     expect(FleetFocus.flagship(available, order: order) == "Fable 5",
            "flagship ranks by tier order")
-    expect(FleetFocus.focusedModel(.weekly, primaryModel: "fable", available: available,
-                                   flagshipOrder: order) == nil,
-           "weekly focus pins the account-wide budget")
 }
 
 // 15b. displayPools ("All pools") draws every window: focused model pool leads, weekly total
@@ -280,15 +254,13 @@ do {
     ])
     expect(modelOnly.first?.displayPools(focusedModel: nil).map(\.kind) == [.weeklyModel],
            "a fleet with only model pools never draws an empty strip")
-    let opus = FleetFocus.focusedModel(.all, primaryModel: "opus",
-                                       available: s.first?.modelPoolNames ?? [], flagshipOrder: order)
+    // The launch model "opus" matches no window here, so the focus resolves to nil (weekly leads).
+    let opus: String? = nil
     expect(opus == nil
                && s.first?.displayPools(focusedModel: opus).contains { $0.modelName == "Fable 5" } == true
                && s.first?.displayPools(focusedModel: opus).first?.kind == .weeklyAll,
            "an opus launch model with only a Fable window still draws it, after the weekly total")
-    let undeclared = FleetFocus.focusedModel(.all, primaryModel: nil,
-                                             available: s.first?.modelPoolNames ?? [],
-                                             flagshipOrder: order)
+    let undeclared = FleetFocus.flagship(s.first?.modelPoolNames ?? [], order: order)
     expect(undeclared == "Fable 5" && s.first?.displayPools(focusedModel: undeclared)
                .contains { $0.modelName == "Fable 5" } == true,
            "an unreadable launch model keeps the flagship's pool")

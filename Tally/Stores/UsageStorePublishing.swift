@@ -62,16 +62,9 @@ extension UsageStore {
             windowName: pool.modelName ?? pool.label)
     }
 
-    /// The model name the display leads with for `providerID`, given the available model window
-    /// names - the glue between the pure resolver and the app's stores. One resolution shared by
-    /// the fleet gauge, the menu-bar strip and the CLI's own fleet line.
-    static func focusedModel(providerID: String, available: [String]) -> String? {
-        FleetFocus.focusedModel(SettingsStore.shared.gaugeFocus,
-                                primaryModel: DemoUsage.launchModelOverride
-                                    ?? LaunchPolicyStore.shared.policy(providerID).model,
-                                available: available,
-                                flagshipOrder: ModelCatalog.claudeAliases)
-    }
+    /// The display always leads with the account-wide weekly budget, so there is no model window to
+    /// name. Kept as the one seam the menu-bar closures call (`MenuBarSegments`); always nil.
+    static func focusedModel(providerID: String, available: [String]) -> String? { nil }
 
     /// Codex Pro's multiple of Plus as the user set it (`defaults write ai.jetto.tally
     /// codexProUsageMultiple -int 20`); nil when unset. `double(forKey:)` also reads a string "20".
@@ -132,16 +125,10 @@ extension UsageStore {
                pool.kind != .session {
                 fleet[summary.providerID] = published(pool)
             }
-            // Mirrors FleetStripView.displayedPools, so `tally status` shows the same pools
-            // as the panel: "all" renders every weekly-cycle pool in display order, the
-            // single-pool modes just the focus-resolved headline.
-            let ordered: [FleetPool]
-            switch SettingsStore.shared.gaugeFocus {
-            case .all: ordered = summary.displayPools(focusedModel: focused)
-            case .primary, .weekly:
-                ordered = summary.headline(focusedModel: focused).map { [$0] } ?? []
-            }
-            let pools = ordered.filter { $0.kind != .session }
+            // Mirrors FleetStripView.displayedPools, so `tally status` shows the same pool
+            // as the panel: the account-wide weekly headline.
+            let pools = (summary.headline(focusedModel: focused).map { [$0] } ?? [])
+                .filter { $0.kind != .session }
             // Accumulate: a provider split by plan arrives once per plan.
             if !pools.isEmpty { fleetPools[summary.providerID, default: []] += pools.map(published) }
         }

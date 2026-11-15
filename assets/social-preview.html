@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<!-- Source of assets/social-preview.png, the GitHub social preview (1280x640, upload under
+     Settings > Social preview). Dark layout: wordmark and copy on the left, the panel capture
+     (social-panel-dark.png, 956 px wide, referenced relatively) on the right, clipped by the canvas.
+     Regenerate: headless Chrome with --use-mock-keychain --password-store=basic and a throwaway
+     --user-data-dir, --window-size=1280,640 --force-device-scale-factor=1 --screenshot. -->
+<style>
+  html,body{margin:0;padding:0}
+  body{width:1280px;height:640px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+  .og{position:relative;width:1280px;height:640px;overflow:hidden;background:#0B0B0C}
+  .txt{position:absolute;left:124px;top:101px;width:520px}
+  .wm{display:inline-flex;align-items:flex-end}
+  .wm svg{display:block}
+  .wm span{font-weight:900;font-style:italic;line-height:1;font-size:60.72px;color:#F5F5F7;margin-left:-17.48px;margin-bottom:-2.76px}
+  .head{margin-top:44px;font-size:46px;line-height:54px;font-weight:700;letter-spacing:-.6px;color:#F5F5F7}
+  .sub{margin-top:22px;font-size:22px;line-height:31px;color:#D4D4D8}
+  .url{margin-top:40px;font-size:19px;font-weight:600;color:#A8A8AE}
+  .shot{position:absolute;display:block;left:688px;top:63px;width:500px;filter:drop-shadow(0 14px 28px rgba(0,0,0,.16)) drop-shadow(0 0 1px rgba(0,0,0,.18))}
+</style></head>
+<body><div class="og">
+  <div class="txt">
+    <span class="wm"><svg width="52.19" height="46" viewBox="276 304 472 416"><path d="M276 304H748L690 418H582L510 720H366L438 418H334Z" fill="#F5F5F7"/><path d="M276 304H465.2L438 418H334Z" fill="#30D158"/></svg><span>ally</span></span>
+    <div class="head">Every Claude and Codex subscription you pay for, in one glance.</div>
+    <div class="sub">A free, open-source macOS menu bar app. Read-only, on your own paid subscriptions.</div>
+    <div class="url">github.com/jettoai/tally</div>
+  </div>
+  <img class="shot" src="social-panel-dark.png" alt="">
+</div></body></html>

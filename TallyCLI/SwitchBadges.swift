@@ -125,6 +125,9 @@ enum PinSwitchWait: Equatable {
     /// Listed, and with nothing to serve: a failed poll, an error, a held-over row, or no headroom
     /// left in the window this session is running.
     case spent
+    /// Listed, but its quota cannot be read: the login was refused or the poll keeps failing
+    /// (`pinnedCannotServe`). Not "nothing left", which would promise a reset that is not coming.
+    case cannotServe
     /// Listed and able to serve, and the cap handoff has just walked this session off it.
     case quarantined
 }
@@ -147,6 +150,10 @@ func pinSwitchWaitBadge(_ wait: PinSwitchWait, pinned: String, staying: String) 
         return PendingBadge("pin: nothing left",
                             detail: "\(pinned) is pinned in Tally and has nothing left to serve "
                                 + "this session; staying on \(staying) until its window resets")
+    case .cannotServe:
+        return PendingBadge("pin: can't read",
+                            detail: "\(pinned) is pinned in Tally but its quota cannot be read; "
+                                + "staying on \(staying) until it reads again")
     case .quarantined:
         return PendingBadge("pin: just capped",
                             detail: "\(pinned) is pinned in Tally and just hit a wall, so the move "

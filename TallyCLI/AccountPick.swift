@@ -192,15 +192,33 @@ func pinnedOutOfQuota(_ row: Snapshot.Account, primaryModel: String?) -> Bool {
     return headroom(row, primaryModel: primaryModel) == 0
 }
 
+/// Whether a pinned row cannot serve a launch right now: this round's read failed, and the failure
+/// is either a login the provider refused or one that has outlasted the badge's two-round debounce
+/// (jettoai/tally#23). `pinnedOutOfQuota` cannot say it, because a failed read is a reading it does
+/// not trust; `eligible` already refuses such a row, so a pin that cannot serve is never one the
+/// pin switch would carry a session back to (`cannotServe` implies `!eligible`).
+///
+/// A single failed round is NOT enough: the app polls once a minute and a token rotation fails one
+/// round routinely, so stepping aside on it would turn the launch away and the pin switch would
+/// carry the session home again a minute later. A snapshot from an app that predates the two
+/// fields falls back to `isStale`, which is the same debounce; one that has neither (`lastRefreshFailed`
+/// nil, no error) reads false, which is today's behaviour.
+func pinnedCannotServe(_ row: Snapshot.Account) -> Bool {
+    let failedNow = row.lastRefreshFailed == true || row.error != nil
+    let sustained = row.usageLoginRejected == true || row.pollsKeepFailing == true || row.isStale
+    return failedNow && sustained
+}
+
 /// The pinned row a NEW launch steps aside from, or nil to launch the pin as it always has (B-1540,
 /// Albert 2026-10-12: a pin is a preference, not the only account a session may run on).
 ///
-/// While the account the pin names is out of quota or has just capped for this model, the launch
-/// takes the smart pick instead, and a supervised session is carried home by the pin switch once
-/// that account refills. The pin keeps the launch in four cells: a reading Tally cannot trust, an
-/// account under its owner's line (that launch is REFUSED, B-1213, and the refusal has to stay the
-/// answer), no other account the smart pick could land on (stepping aside into nothing launches
-/// bare), and a policy that is not a pin at all.
+/// While the account the pin names is out of quota, cannot be read for several rounds running or
+/// has just capped for this model, the launch takes the smart pick instead, and a supervised
+/// session is carried home by the pin switch once that account is back. The pin keeps the launch
+/// in four cells: a reading Tally cannot yet trust (one failed round), an account under its
+/// owner's line (that launch is REFUSED, B-1213, and the refusal has to stay the answer), no other
+/// account the smart pick could land on (stepping aside into nothing launches bare), and a policy
+/// that is not a pin at all.
 func pinStepAsideRow(_ snapshot: Snapshot?, policy: LaunchPolicy, primaryModel: String?,
                      quarantined: Set<String>, reserves: AccountReserves, spendReserve: Bool,
                      now: Date = Date()) -> Snapshot.Account? {
@@ -208,7 +226,8 @@ func pinStepAsideRow(_ snapshot: Snapshot?, policy: LaunchPolicy, primaryModel: 
           let row = snapshot.accounts.first(where: {
               $0.id == policy.pinnedAccountID && $0.launchHome != nil
           }),
-          pinnedOutOfQuota(row, primaryModel: primaryModel) || quarantined.contains(row.id),
+          pinnedOutOfQuota(row, primaryModel: primaryModel) || pinnedCannotServe(row)
+              || quarantined.contains(row.id),
           spendReserve || aboveReserve(row, primaryModel: primaryModel, reserves: reserves, now: now)
     else { return nil }
     guard best(providerID: row.provider, in: snapshot, primaryModel: primaryModel,
@@ -220,7 +239,15 @@ func pinStepAsideRow(_ snapshot: Snapshot?, policy: LaunchPolicy, primaryModel: 
 /// What a launch that stepped aside says, on every surface that launches (`tally claude`'s stderr,
 /// the shim's script).
 func pinStepAsideNotice(_ row: Snapshot.Account, pinnedBy: String) -> String {
-    "\(row.label) is out of quota - launching on Smart until it refills (\(pinnedBy))"
+    if row.usageLoginRejected == true && pinnedCannotServe(row) {
+        return "\(row.label) is signed out, so launching on Smart until you sign in again; "
+            + "run /login on it (\(pinnedBy))"
+    }
+    if pinnedCannotServe(row) {
+        return "\(row.label) has not returned its quota for several refreshes, so launching on "
+            + "Smart until it does; if it persists, run /login on it (\(pinnedBy))"
+    }
+    return "\(row.label) is out of quota - launching on Smart until it refills (\(pinnedBy))"
 }
 
 /// One usage window with its sustainable burn rate: how much quota per hour it can spend until

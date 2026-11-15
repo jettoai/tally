@@ -13,7 +13,8 @@ import Foundation
 //
 // Fixture per provider: three accounts (work1, work2, solo) whose windows are set by the snapshot
 // dimension (under a reserve, work1 carries the one reserve and the others are spent); a signed-out
-// row `out` joins when the pin names it. The row pin names work1, so it can be refused. The
+// row `out` joins when the pin names it, and so does a row `dead` whose poll failed (one round,
+// two rounds, or a login the provider refused; jettoai/tally#23). The row pin names work1, so it can be refused. The
 // harness (`check`) is shared from main.swift.
 
 func runResolveLaunchChecks() {
@@ -28,24 +29,40 @@ func runResolveLaunchChecks() {
     let now = Date()
     let providerPair = [providers[0], providers[1]]
     enum Shot: CaseIterable { case none, healthy, underReserve, noneEligible }
-    enum Pin: CaseIterable { case none, row, notInSnapshot, signedOut }
+    enum Pin: CaseIterable { case none, row, notInSnapshot, signedOut, blip, failing, rejected }
     enum Export: CaseIterable { case none, knownRow, unknown, leaked }
     let accountFlags: [String?] = [nil, "work1", "zzz", "work"]
 
     func home(_ p: Provider, _ name: String) -> String { "/tmp/rl-\(p.id)-\(name)" }
-    func acct(_ p: Provider, _ name: String, _ shot: Shot, signedOut: Bool = false) -> Snapshot.Account {
+    /// The account a pin names, by the fixture's own account name.
+    func pinned(_ pin: Pin) -> String {
+        switch pin {
+        case .none, .row: return "work1"
+        case .notInSnapshot: return "gone"
+        case .signedOut: return "out"
+        case .blip, .failing, .rejected: return "dead"
+        }
+    }
+    func acct(_ p: Provider, _ name: String, _ shot: Shot, signedOut: Bool = false,
+              pin: Pin = .none) -> Snapshot.Account {
         // The reserve is single select (AccountRoles.reserve): under a reserve, work1 alone carries
         // one and sits under it, and the other rows are spent, so the field is the reserve's.
         let reserved = shot == .underReserve && name == "work1"
         let spent = shot == .noneEligible || (shot == .underReserve && !reserved)
+        // `dead` is the one row whose latest poll failed: `.blip` is the first round (the badge's
+        // debounce has not tripped), `.failing` the second, `.rejected` a login the provider refused.
+        let failed = name == "dead" && pin != .none
         return Snapshot.Account(
             id: "\(p.id):\(name)", provider: p.id, label: name,
             launchHome: signedOut ? nil : home(p, name),
             sessionRemaining: spent ? 0 : 90, weeklyRemaining: spent ? 0 : reserved ? 50 : 90,
             modelRemaining: nil, sessionResetsAt: now.addingTimeInterval(4 * 3600),
             weeklyResetsAt: now.addingTimeInterval(100 * 3600), modelResetsAt: nil,
-            modelWindowName: nil, resetCreditsAvailable: nil, isStale: false, error: nil,
-            lastRefreshFailed: false)
+            modelWindowName: nil, resetCreditsAvailable: nil,
+            isStale: failed && pin == .failing, error: failed && pin != .blip ? "x" : nil,
+            lastRefreshFailed: failed,
+            pollsKeepFailing: failed ? pin == .failing : false,
+            usageLoginRejected: failed ? pin == .rejected : false)
     }
 
     struct Expect: Equatable {
@@ -118,15 +135,22 @@ func runResolveLaunchChecks() {
         // The manual pin. With no snapshot every pin is its denormalized home. A pin out of quota
         // never steps aside here: when it is (noneEligible), nothing else can take the launch.
         if pin != .none {
-            if shot == .none {
-                return launched(.pinHome, home(p, pin == .row ? "work1" : pin == .signedOut ? "out" : "gone"),
-                                .forHome)
-            }
+            if shot == .none { return launched(.pinHome, home(p, pinned(pin)), .forHome) }
             switch pin {
             case .row:
                 return under && !spend ? refused(.pin, "named")
                     : launched(.pin, home(p, "work1"), .forHome)
             case .notInSnapshot: return launched(.pinHome, home(p, "gone"), .forHome)
+            case .blip:
+                // One failed round is a blip, not a verdict: the pin launches as it always has.
+                return launched(.pin, home(p, "dead"), .forHome)
+            case .failing, .rejected:
+                // A pin that cannot be read steps aside while another account can take the launch:
+                // healthy fleet, or a fleet whose only candidate sits under a reserve the launch is
+                // told to spend. With nobody to take it the pin keeps the launch.
+                let someoneCanTake = shot == .healthy || (under && spend)
+                return someoneCanTake ? launched(.pick, "*", .forHome)
+                    : launched(.pin, home(p, "dead"), .forHome)
             default: break   // signed out: picked by headroom
             }
         }
@@ -146,6 +170,9 @@ func runResolveLaunchChecks() {
             for pin in Pin.allCases {
                 var rows = names.map { acct(p, $0, shot) }
                 if pin == .signedOut { rows.append(acct(p, "out", shot, signedOut: true)) }
+                if pin == .blip || pin == .failing || pin == .rejected {
+                    rows.append(acct(p, "dead", shot, pin: pin))
+                }
                 let snapshot = shot == .none ? nil : Snapshot(version: 2, generatedAt: now, accounts: rows)
                 let reserves = shot == .underReserve
                     ? AccountReserves(settings: [home(p, "work1"):
@@ -160,6 +187,9 @@ func runResolveLaunchChecks() {
                                                            pinnedHome: home(p, "gone"))
                 case .signedOut: policy = LaunchPolicy(mode: "manual", pinnedAccountID: "\(p.id):out",
                                                        pinnedHome: home(p, "out"))
+                case .blip, .failing, .rejected:
+                    policy = LaunchPolicy(mode: "manual", pinnedAccountID: "\(p.id):dead",
+                                          pinnedHome: home(p, "dead"))
                 }
                 for export in Export.allCases {
                     for flag in accountFlags {
@@ -205,8 +235,8 @@ func runResolveLaunchChecks() {
         }
     }
     firstMisses.forEach { print("  MISS \($0)") }
-    check("resolveLaunch agrees with the rules on every one of the 2048 cells (\(agreed)/\(cells))",
-          cells == 2048 && agreed == cells)
+    check("resolveLaunch agrees with the rules on every one of the 3584 cells (\(agreed)/\(cells))",
+          cells == 3584 && agreed == cells)
 
     // THE SECOND TABLE: what else decides supervision - the terminal, a print flag, `--no-handoff`,
     // and Codex's first positional (`exec` is a one-shot subcommand, `resume` a session) - on the

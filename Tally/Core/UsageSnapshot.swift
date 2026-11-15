@@ -71,6 +71,19 @@ struct UsageSnapshot: Codable {
         /// The account this home's Claude login is already counted under (jettoai/tally#6): an
         /// account id, never the login's identity. Absent on every other row and from older apps.
         var sameAccountAs: String?
+        /// Whether this account's polls have failed twice running, the badge's own debounce
+        /// (`AccountUsage.pollsKeepFailing`). The CLI cannot read it off `isStale`: an account
+        /// that has never had a good round (the app was restarted while its login was already
+        /// gone) is never marked stale. False is written out; nil is an app that predates the field
+        /// (jettoai/tally#23).
+        var pollsKeepFailing: Bool?
+        /// Whether the provider's own usage read said this account is not logged in. Only that
+        /// evidence, never the local status probe (`LoginStatusStore.usageRejectedAccounts`): the
+        /// probe can disagree with a usage read that just succeeded, and the CLI must not step
+        /// aside from an account whose numbers it can read. Always paired with
+        /// `lastRefreshFailed == true`, since a successful usage read clears both. False is
+        /// written out; nil is an older app.
+        var usageLoginRejected: Bool?
     }
 
     var version = 2
@@ -145,7 +158,7 @@ struct UsageSnapshot: Codable {
                      fleet: [String: Fleet]? = nil, fleetPools: [String: [Fleet]]? = nil,
                      fleetWeighted: [String: Weighted]? = nil,
                      accountOrder: [String]? = nil, resetStates: [String: String] = [:],
-                     now: Date = Date()) -> UsageSnapshot {
+                     loginRejected: Set<String> = [], now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
             accounts: accounts.map { usage in
@@ -171,7 +184,9 @@ struct UsageSnapshot: Codable {
                     resetCreditsExpiryUnknown: usage.resetCredits == nil && usage.resetCreditsAvailable == nil
                         ? nil : usage.resetCreditsExpiryUnknown,
                     resetState: resetStates[usage.id],
-                    sameAccountAs: usage.sameAccountAs
+                    sameAccountAs: usage.sameAccountAs,
+                    pollsKeepFailing: usage.pollsKeepFailing,
+                    usageLoginRejected: loginRejected.contains(usage.id)
                 )
             },
             statuslineFullQuota: statuslineFullQuota,

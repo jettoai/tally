@@ -30,7 +30,8 @@ struct SteeredLaunch {
 /// The pick itself: its manual pin - in Tally or from `tally project set --account` - when that
 /// resolves to a launchable account, and otherwise the same headroom pick `runLaunch` makes, this
 /// project's model and the live cap quarantine included. A pin resolves unless its account is out of
-/// quota and another can take the launch (`pinStepAsideRow`), or it has signed out, which is not
+/// quota or cannot be read for several rounds and another can take the launch (`pinStepAsideRow`),
+/// or it has signed out, which is not
 /// launchable by anyone (AccountPick.swift).
 ///
 /// Shared by `best-dir` and `launch-dir` so neither can print an export line naming an account the

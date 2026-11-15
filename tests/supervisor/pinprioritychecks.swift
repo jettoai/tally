@@ -14,7 +14,8 @@ func runPinPriorityChecks() {
 
     func pinAccount(_ id: String, model: Double?, label: String? = nil,
                     resetsIn: TimeInterval = 100 * 3600, stale: Bool = false,
-                    windows: Bool = true) -> Snapshot.Account {
+                    windows: Bool = true, failed: Bool? = nil, error: String? = nil,
+                    keepFailing: Bool? = nil, rejected: Bool? = nil) -> Snapshot.Account {
         Snapshot.Account(id: id, provider: "claude", label: label ?? id, launchHome: "/tmp/\(id)",
                          sessionRemaining: windows ? 90 : nil, weeklyRemaining: windows ? 90 : nil,
                          modelRemaining: model,
@@ -22,7 +23,8 @@ func runPinPriorityChecks() {
                          weeklyResetsAt: pNow.addingTimeInterval(100 * 3600),
                          modelResetsAt: pNow.addingTimeInterval(resetsIn),
                          modelWindowName: "fable", resetCreditsAvailable: nil, isStale: stale,
-                         error: nil, refreshedAt: pNow)
+                         error: error, refreshedAt: pNow, lastRefreshFailed: failed,
+                         pollsKeepFailing: keepFailing, usageLoginRejected: rejected)
     }
     let healthyP = pinAccount("P", model: 60, label: "Claude 4")
     let emptyP = pinAccount("P", model: 0, label: "Claude 4")
@@ -239,6 +241,31 @@ func runPinPriorityChecks() {
           stepAside([healthyP, sibling], quarantined: ["P"]) == "P")
     check("a reading Tally cannot trust keeps the pin",
           stepAside([pinAccount("P", model: 0, stale: true), sibling]) == nil)
+    // jettoai/tally#23: a pin whose quota cannot be read steps aside too, but not on one bad round.
+    let blipP = pinAccount("P", model: 60, label: "Claude 4", failed: true)
+    let failingP = pinAccount("P", model: 60, label: "Claude 4", failed: true, error: "x",
+                              keepFailing: true)
+    let rejectedP = pinAccount("P", model: 60, label: "Claude 4", failed: true, error: "x",
+                               rejected: true)
+    let oldAppP = pinAccount("P", model: 60, label: "Claude 4", stale: true, error: "x")
+    check("one failed round keeps the pin, the badge has not tripped", stepAside([blipP, sibling]) == nil)
+    check("a poll that keeps failing steps the pin aside", stepAside([failingP, sibling]) == "P")
+    check("a login the provider refused steps aside on the first round",
+          stepAside([rejectedP, sibling]) == "P")
+    check("an app that predates the fields still steps aside on its own stale badge",
+          stepAside([oldAppP, sibling]) == "P")
+    check("…but stale without a failure now is today's behaviour: the pin stays",
+          stepAside([pinAccount("P", model: 60, stale: true), sibling]) == nil)
+    check("an unreadable pin does not step aside into nothing",
+          stepAside([failingP, pinAccount("S", model: 0)]) == nil)
+    // The row's held-over windows read 90%, under a 95% line: the refusal stays the answer, as it does
+    // for an empty pin, unless the launch is told to spend the reserve.
+    let lineP = AccountReserves(settings: ["/tmp/P": AccountRoleSetting(
+        role: AccountRoles.personal, reserve: 95)])
+    check("…and an unreadable pin under its owner's line keeps the refusal",
+          stepAside([failingP, sibling], reserves: lineP) == nil)
+    check("…unless the launch spends the reserve",
+          stepAside([failingP, sibling], reserves: lineP, spend: true) == "P")
     check("a row with no counted window is evidence of nothing",
           stepAside([pinAccount("P", model: nil, windows: false), sibling]) == nil)
     let reserved = AccountReserves(settings: ["/tmp/P": AccountRoleSetting(
@@ -282,6 +309,31 @@ func runPinPriorityChecks() {
           !mainCode.isEmpty && stepped.route == .pick && stepped.stepAside?.id == "P"
               && stepped.account?.id == "S"
               && stepped.notices == [pinStepAsideNotice(emptyP, pinnedBy: "pinned in Tally")])
+    // The three sentences, each said for its own cause, and none of them with an em dash.
+    let outSaid = pinStepAsideNotice(emptyP, pinnedBy: "pinned in Tally")
+    let failSaid = pinStepAsideNotice(failingP, pinnedBy: "pinned in Tally")
+    let rejectSaid = pinStepAsideNotice(rejectedP, pinnedBy: "pinned in Tally")
+    check("an empty pin keeps the sentence it always had",
+          outSaid == "Claude 4 is out of quota - launching on Smart until it refills (pinned in Tally)")
+    check("a refused login says signed out and names the fix",
+          rejectSaid == "Claude 4 is signed out, so launching on Smart until you sign in again; "
+              + "run /login on it (pinned in Tally)")
+    check("a quota that stays unread says so without claiming a logout",
+          failSaid == "Claude 4 has not returned its quota for several refreshes, so launching on "
+              + "Smart until it does; if it persists, run /login on it (pinned in Tally)")
+    check("none of the three sentences carries an em dash",
+          [outSaid, failSaid, rejectSaid].allSatisfy { !$0.contains("\u{2014}") })
+    let unreadStep = launch(providers[0], [failingP, sibling])
+    check("`tally claude` starts on the smart pick when the pin keeps failing, and says why",
+          unreadStep.route == .pick && unreadStep.account?.id == "S"
+              && unreadStep.notices.first == failSaid)
+    let unreadStuck = launch(providers[0], [failingP, pinAccount("S", model: 0)])
+    check("…and launches the unreadable pin anyway, saying so, only when nothing else can take it",
+          unreadStuck.route == .pin && unreadStuck.account?.id == "P"
+              && unreadStuck.notices.first == "Claude 4 cannot be read right now and no other "
+                  + "account can take this launch, so launching it anyway (pinned in Tally)")
+    check("…and the launch under one failed round is the pin, untouched",
+          launch(providers[0], [blipP, sibling]).route == .pin)
     check("…and says it launches the empty pin anyway only when nothing else can take it",
           stuck.route == .pin && stuck.account?.id == "P"
               && stuck.notices.first?.hasSuffix("launching it anyway (pinned in Tally)") == true)

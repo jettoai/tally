@@ -438,7 +438,8 @@ private func applyPinSwitch(plan: inout RelaunchPlan?, state: inout ManualMoveSt
         // second pass over the fleet. An account the field excluded while `eligible` still passes
         // it is one the quarantine took out, which is the only one of the three that expires.
         guard let listed else { return hold(.unlisted) }
-        return hold(eligible(listed, primaryModel: primaryModel) ? .quarantined : .spent)
+        return hold(eligible(listed, primaryModel: primaryModel) ? .quarantined
+            : pinnedCannotServe(listed) ? .cannotServe : .spent)
     }
     warn("pinned in Tally → switching to \(target.label)")
     plan = RelaunchPlan(target: target, reason: "pin", countsFuse: false)

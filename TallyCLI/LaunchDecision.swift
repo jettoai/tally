@@ -338,10 +338,14 @@ func resolveLaunch(_ provider: Provider, intent: LaunchIntent,
             })
             // Not under the owner's line: that launch is about to be refused, and "launching anyway"
             // first would contradict it.
-            if let row, pinnedOutOfQuota(row, primaryModel: model),
-               spend || aboveReserve(row, primaryModel: model, reserves: r.reserves, now: r.now) {
-                notices.append("\(row.label) is out of quota and no other account can take this "
-                    + "launch - launching it anyway (\(r.pinnedBy))")
+            if let row, spend || aboveReserve(row, primaryModel: model, reserves: r.reserves, now: r.now) {
+                if pinnedOutOfQuota(row, primaryModel: model) {
+                    notices.append("\(row.label) is out of quota and no other account can take this "
+                        + "launch - launching it anyway (\(r.pinnedBy))")
+                } else if pinnedCannotServe(row) {
+                    notices.append("\(row.label) cannot be read right now and no other account can "
+                        + "take this launch, so launching it anyway (\(r.pinnedBy))")
+                }
             }
             if let match = row {
                 if !spend, let refusal = namedReserveRefusal(match, primaryModel: model,

@@ -67,6 +67,13 @@ struct Snapshot: Decodable {
         /// `error` there, and accepts that such an app leaves the first failure unannounced.
         var lastRefreshFailed: Bool?
         var sameAccountAs: String?  // #6: kept account's id on a home sharing its Claude login
+        /// True once this account's polls have failed twice running (the app's own "Outdated"
+        /// debounce, `AccountUsage.pollsKeepFailing`). nil from an app that predates the field,
+        /// which falls back to `isStale` (jettoai/tally#23).
+        var pollsKeepFailing: Bool?
+        /// True while the provider's own usage read said this account is not logged in. Stronger
+        /// than a failed poll, so a launch need not wait out the debounce. nil from an older app.
+        var usageLoginRejected: Bool?
     }
 
     var version: Int

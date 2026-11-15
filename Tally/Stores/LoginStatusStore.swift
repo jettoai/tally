@@ -58,6 +58,10 @@ final class LoginStatusStore {
         identities = Self.loadIdentities()
     }
 
+    /// The accounts whose usage read itself said "not logged in", without the local status probe:
+    /// what the snapshot publishes so the CLI can step a pin aside from a dead login (#23).
+    var usageRejectedAccounts: Set<String> { usageHealth.rejected }
+
     /// Whether this account's card should say its login expired. Demo mode answers from the fixture
     /// instead: those cards have no config home, so nothing was ever probed for them.
     func isExpired(_ accountID: String) -> Bool {

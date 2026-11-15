@@ -410,6 +410,7 @@ runReserveNoticeChecks()
 // would refuse (reopenparitychecks.swift).
 runReopenParityChecks()
 runResolveLaunchChecks()
+runPinCannotServeChecks()
 
 // MARK: - Writes refuse to run on a file they could not read
 

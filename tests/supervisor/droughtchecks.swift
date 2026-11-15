@@ -357,6 +357,16 @@ func runDroughtChecks() {
           spentWait.plan == nil && spentWait.waiting?.badge == "pin: nothing left")
     check("…and names the account the session is staying on meanwhile",
           spentWait.waiting?.detail?.contains(sibling.label) == true)
+    // jettoai/tally#23: an account that keeps failing is not "nothing left", and the badge must not
+    // promise a window reset that is not coming.
+    var unreadRow = failedRow
+    unreadRow.pollsKeepFailing = true
+    let unreadWait = pinSwitchTick(afterTheMove(pinnedRow: unreadRow, app: appPinned,
+                                                projectAccount: nil).moving,
+                                   fleet: [unreadRow, sibling])
+    check("a pin whose quota keeps failing to read says so, not that nothing is left",
+          unreadWait.plan == nil && unreadWait.waiting?.badge == "pin: can't read"
+              && unreadWait.waiting?.detail?.contains(sibling.label) == true)
     // TOLD APART FROM THE ONE THAT EXPIRES, which is the whole reason these are separate badges: a
     // reader who cannot tell them apart cannot tell "a few minutes" from "until the window resets".
     let cappedWait = pinSwitchTick(afterTheMove(pinnedRow: comfortable, app: appPinned,
@@ -384,8 +394,8 @@ func runDroughtChecks() {
     // The badge is a STATE, never a moment: the same rule both other waiting axes are held to
     // (`promisesAMoment`, switchchecks.swift), because the term that lifts a wait is not the term
     // that raised it.
-    check("and none of the four promises a moment",
-          [PinSwitchWait.unreadable, .unlisted, .spent, .quarantined].allSatisfy {
+    check("and none of the five promises a moment",
+          [PinSwitchWait.unreadable, .unlisted, .spent, .cannotServe, .quarantined].allSatisfy {
               !promisesAMoment(pinSwitchWaitBadge($0, pinned: "Claude 4", staying: "Claude 3").badge)
           })
     // AND IT NEVER SPEAKS OVER A TYPED INSTRUCTION. `tally switch` is the more specific news about

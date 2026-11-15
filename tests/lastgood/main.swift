@@ -176,6 +176,31 @@ check("…so nil is left to mean cannot tell",
       UsageSnapshot.Account(id: "A", provider: "claude", label: "A", isStale: false)
           .lastRefreshFailed == nil)
 
+// MARK: - The two facts a pin needs to step aside reach the snapshot (jettoai/tally#23)
+
+var keepsFailing = failure
+keepsFailing.pollsKeepFailing = true
+let pinFacts = UsageSnapshot.make(accounts: [keepsFailing, fresh], launchHomes: [:],
+                                  loginRejected: ["A"])
+check("the published row carries the sustained-failure flag",
+      pinFacts.accounts.first?.pollsKeepFailing == true && pinFacts.accounts.last?.pollsKeepFailing == false)
+check("…and the refused-login flag, only for the account named",
+      pinFacts.accounts.first?.usageLoginRejected == true
+          && UsageSnapshot.make(accounts: [fresh], launchHomes: [:]).accounts.first?.usageLoginRejected == false)
+let pinFactsJSON = try! JSONEncoder().encode(pinFacts)
+let pinFactRows = ((try? JSONSerialization.jsonObject(with: pinFactsJSON)) as? [String: Any])?["accounts"]
+    as? [[String: Any]] ?? []
+check("both reach the file as plain booleans a reader decodes by key",
+      pinFactRows.first?["pollsKeepFailing"] as? Bool == true
+          && pinFactRows.first?["usageLoginRejected"] as? Bool == true)
+let legacyRow = try? JSONDecoder().decode(UsageSnapshot.Account.self, from: Data(
+    #"{"id":"A","provider":"claude","label":"A","isStale":false}"#.utf8))
+check("a row written before the fields decodes with both nil, which is cannot tell",
+      legacyRow != nil && legacyRow?.pollsKeepFailing == nil && legacyRow?.usageLoginRejected == nil)
+let storeWiring = (try? String(contentsOfFile: "Tally/Stores/UsageStorePublishing.swift", encoding: .utf8)) ?? ""
+check("the publisher hands the snapshot the usage-only rejected set",
+      storeWiring.contains("loginRejected: LoginStatusStore.shared.usageRejectedAccounts"))
+
 // MARK: - sameAccountAs reaches the snapshot (jettoai/tally#6)
 
 var sharedRow = AccountUsage(id: "claude:.claude-am", providerID: "claude", accountLabel: "AM",

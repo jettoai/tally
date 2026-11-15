@@ -86,8 +86,11 @@ func checkWeeklyRight() {
     check(303 - (c555[.model(0)]?.x ?? 0) == 64, "the block moved 64pt toward the name (old block start 303)")
     // The narrowest panel narrows the cell so the plan pill stays; both cards still share one weekly x.
     let c452 = meterXs(claude, panel: 452, sharedColumns: shared), x452 = meterXs(codex, panel: 452, sharedColumns: shared)
-    check(c452[.weekly]?.x == x452[.weekly]?.x && c452[.weekly]?.width == 115,
-          "on 452pt the cells narrow to 115 and weekly still shares one x")
+    check(c452[.weekly]?.x == x452[.weekly]?.x && c452[.weekly]?.width == 100,
+          "on 452pt the cells narrow to 100 (the names stay whole) and weekly still shares one x")
+    let c463 = meterXs(claude, panel: 463, sharedColumns: shared), x463 = meterXs(codex, panel: 463, sharedColumns: shared)
+    check(c463[.weekly]?.x == x463[.weekly]?.x && c463[.weekly]?.width == 105 && c463[.weekly].map { $0.x + $0.width } == 463 - 34,
+          "on 463pt the cells are 105 and both cards' weekly column ends at 429")
     // A 5-hour window on one card makes every card use the three-window cell, so weekly stays aligned.
     let claude3 = MeterColumns.displayBlock([MeterColumns.keys([.model, .session, .weekly])])
     let s3 = max(claude3.count, codex.count)

@@ -17,10 +17,11 @@ try! fm.createDirectory(at: scratch, withIntermediateDirectories: true)
 defer { try? fm.removeItem(at: scratch) }
 
 /// Runs /bin/sh with the given arguments; returns the exit code and stdout.
-func sh(_ arguments: [String]) -> (code: Int32, out: String) {
+func sh(_ arguments: [String], env: [String: String] = [:]) -> (code: Int32, out: String) {
     let task = Process()
     task.executableURL = URL(fileURLWithPath: "/bin/sh")
     task.arguments = arguments
+    task.environment = ProcessInfo.processInfo.environment.merging(env) { $1 }
     let pipe = Pipe()
     task.standardOutput = pipe
     task.standardError = FileHandle.nullDevice
@@ -109,7 +110,8 @@ expect(!text.contains("/usr/local"), "T3 never names a folder this user owns")
 let tokens = Set(text.split(whereSeparator: { " \n\t\"'=;()".contains($0) }).map(String.init).filter { $0.hasPrefix("/") }
     .flatMap { $0.split(separator: ":").map(String.init) })
 let allowed: Set<String> = ["/bin/sh", "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/bin/mktemp", "/bin/rm",
-                            "/usr/bin/head", "/usr/bin/sample", "/usr/bin/fs_usage", "/dev/null"]
+                            "/usr/bin/head", "/usr/bin/sample", "/usr/bin/fs_usage", "/dev/null",
+                            "/private/tmp/tally-forensics.XXXXXX"]
 expect(tokens.isSubset(of: allowed), "T3 the only absolute paths are system tools: \(tokens.subtracting(allowed).sorted())")
 expect(text.components(separatedBy: "-file").count == 2 && text.contains("-file \"$d/sample.txt\""),
        "T3 the one -file names a file in the helper's own root-only folder")
@@ -125,9 +127,9 @@ let wrapperDest = scratch.appendingPathComponent("installed-wrapper")
 let sudoersDest = scratch.appendingPathComponent("installed-sudoers")
 let failingVisudo = scratch.appendingPathComponent("visudo-fails")
 write("#!/bin/sh\nexit 1\n", to: failingVisudo, mode: 0o755)
-func install(visudo: String, sudoers: URL = sudoersDest) -> Int32 {
+func install(visudo: String, sudoers: URL = sudoersDest, env: [String: String] = [:]) -> Int32 {
     let script = P.installScript(visudo: visudo, owner: "", wrapper: wrapperDest.path, sudoers: sudoers.path)
-    return sh(["-c", script, "sh", P.wrapperScript(), rule ?? ""]).code
+    return sh(["-c", script, "sh", P.wrapperScript(), rule ?? ""], env: env).code
 }
 let failed = install(visudo: failingVisudo.path)
 expect(failed == 65 && !fm.fileExists(atPath: sudoersDest.path) && !fm.fileExists(atPath: wrapperDest.path),
@@ -144,6 +146,20 @@ let brokenRule = sh(["-c", P.installScript(owner: "", wrapper: wrapperDest.path,
 expect(brokenRule.code == 65 && !fm.fileExists(atPath: sudoersDest.path), "T4 the real visudo stops a broken rule before any write")
 let rolledBack = install(visudo: "/usr/sbin/visudo", sudoers: scratch.appendingPathComponent("no-such-folder/sudoers"))
 expect(rolledBack == 66 && !fm.fileExists(atPath: wrapperDest.path), "T4 a failed second install takes the first back (exit \(rolledBack))")
+do {  // C-1: a bare `mktemp -d` lands in a per-user temp folder (or TMPDIR), where a same-account program can
+      // rename root's temp folder away between visudo and install; the parent must be sticky and root-owned
+    let userTmp = scratch.appendingPathComponent("user-tmpdir")
+    try? fm.createDirectory(at: userTmp, withIntermediateDirectories: true)
+    let seen = scratch.appendingPathComponent("visudo-saw")
+    let spyVisudo = scratch.appendingPathComponent("visudo-spy")
+    write("#!/bin/sh\np=$(/usr/bin/dirname \"$(/usr/bin/dirname \"$2\")\")\n[ -k \"$p\" ] && s=sticky || s=plain\n"
+          + "echo \"$p $s $(/usr/bin/stat -f %Su \"$p\")\" > '\(seen.path)'\n", to: spyVisudo, mode: 0o755)
+    let code = install(visudo: spyVisudo.path, env: ["TMPDIR": userTmp.path + "/"])
+    let saw = (try? String(contentsOf: seen, encoding: .utf8)) ?? ""
+    expect(code == 0 && saw == "/private/tmp sticky root\n",
+           "T4 with TMPDIR in the user's folder, the install's temp folder sits in sticky root-owned /private/tmp (saw \(saw.debugDescription))")
+    try? fm.removeItem(at: wrapperDest); try? fm.removeItem(at: sudoersDest)
+}
 expect(P.installScript().contains("-o root -g wheel") && P.installScript().contains("'/etc/sudoers.d/tally-forensics'")
        && P.installScript().contains("'/Library/PrivilegedHelperTools/ai.jetto.tally.forensics'"),
        "T4 the installed script writes root-owned files at the two approved paths")

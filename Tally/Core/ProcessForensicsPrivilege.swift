@@ -62,7 +62,7 @@ enum ProcessForensicsPrivilege {
         esac
         [ "${#1}" -le 7 ] || exit 64
         pid=$1
-        d=$(/usr/bin/mktemp -d) || exit 70
+        d=$(/usr/bin/mktemp -d /private/tmp/tally-forensics.XXXXXX) || exit 70
         trap '/bin/rm -rf "$d"' EXIT
         trap 'exit 1' HUP INT TERM
         \(fsUsage) -w -t 10 -f filesys > "$d/fs_usage.txt" 2>&1 &
@@ -81,7 +81,9 @@ enum ProcessForensicsPrivilege {
 
     /// Run as root through the password window: `sh -c <script> sh <wrapper text> <sudoers text>`. Both
     /// texts arrive as argv, never from a file the user could swap while the window waits for the
-    /// password. They go to root's own temp folder, the rule is checked with `visudo -cf`, and only then
+    /// password. They go to a 0700 folder root makes in sticky /private/tmp (never this user's own temp
+    /// folder, where a same-account program could rename it away between `visudo` and `install`), the
+    /// rule is checked with `visudo -cf`, and only then
     /// are the files installed (the helper first, so the rule never names a file that is not there). A
     /// failed second install takes the first back: no half of it is left.
     static func installScript(visudo: String = "/usr/sbin/visudo", install: String = "/usr/bin/install",
@@ -89,7 +91,7 @@ enum ProcessForensicsPrivilege {
                               wrapper: String = wrapperPath, sudoers: String = sudoersPath) -> String {
         """
         umask 077
-        d=$(/usr/bin/mktemp -d) || exit 70
+        d=$(/usr/bin/mktemp -d /private/tmp/tally-forensics.XXXXXX) || exit 70
         trap '/bin/rm -rf "$d"' EXIT
         printf '%s\\n' "$1" > "$d/wrapper" || exit 70
         printf '%s\\n' "$2" > "$d/sudoers" || exit 70

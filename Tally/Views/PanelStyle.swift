@@ -29,6 +29,12 @@ enum PanelStyle {
 
     static func meterCellWidth(columns: Int) -> CGFloat { PanelMetrics.meterCellWidth(columns: columns) }
     static func meterBlockWidth(columns: Int) -> CGFloat { PanelMetrics.meterBlockWidth(columns: columns) }
+    static func meterCellWidth(columns: Int, rowWidth: CGFloat) -> CGFloat {
+        PanelMetrics.meterCellWidth(columns: columns, rowWidth: rowWidth)
+    }
+    static func meterBlockWidth(columns: Int, cell: CGFloat) -> CGFloat {
+        PanelMetrics.meterBlockWidth(columns: columns, cell: cell)
+    }
 
     // MARK: Colours
     private static func dynamic(dark: NSColor, light: NSColor) -> Color {

@@ -24,6 +24,9 @@ struct AccountListRowView: View {
     /// The meter columns of this row's block (`MeterColumns.displayBlock`): each window stands in the
     /// column of its kind, so a kind keeps one x down the block. Empty means this row's own windows.
     var meterColumns: [MeterColumnKey] = []
+    /// One meter cell's width, shared by every card so the weekly column stands at one x. Nil takes
+    /// the table's width, which is what the floating drag preview does.
+    var meterCellWidth: CGFloat? = nil
     /// Whether this row is the provider's auto pick, answered once for the whole block by its list
     /// (`AccountFacts.autoPickID`). Nil asks on its own, which is what the floating drag preview does.
     var isAutoPick: Bool? = nil
@@ -47,7 +50,8 @@ struct AccountListRowView: View {
     static let meterGap: CGFloat = PanelStyle.meterGap
 
     /// The SHORTEST a meter track gets. The track takes the full width of the cell it is in
-    /// (`PanelMetrics.meterCellWidth`: 104pt for one or two windows, 68pt for three, 60pt for four);
+    /// (`PanelMetrics.meterCellWidth`: 136pt for one or two windows, 68pt for three, 60pt for four,
+    /// narrowed on the narrowest panel and shared by every card: the grid passes it as `meterCellWidth`);
     /// this is the floor under that (`MeterSlots.minimumCluster`).
     nonisolated static let barWidth: CGFloat = 14
     static let barHeight: CGFloat = PanelStyle.barHeight
@@ -91,7 +95,8 @@ struct AccountListRowView: View {
                             .layoutValue(key: MeterColumn.self, value: columnKeys.firstIndex(of: key))
                     }
                 }
-                .frame(width: PanelStyle.meterBlockWidth(columns: columnKeys.count))
+                .frame(width: PanelStyle.meterBlockWidth(
+                    columns: columnKeys.count, cell: meterCellWidth ?? PanelStyle.meterCellWidth(columns: columnKeys.count)))
                 .anchorPreference(key: PanelHintTargetKey.self, value: .bounds) { [usage.id: $0] }
             }
         }

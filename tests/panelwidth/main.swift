@@ -412,6 +412,7 @@ for display in displays {
 }
 
 checkMeterColumns()
+checkWeeklyRight()
 
 if failures == 0 {
     print("\nall panel width assertions passed")

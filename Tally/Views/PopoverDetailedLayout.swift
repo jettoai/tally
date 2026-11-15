@@ -23,47 +23,54 @@ extension PopoverRootView {
     @ViewBuilder
     var detailedAccountLayout: some View {
         let groups = accountGroups
+        // One meter cell for the whole panel, sized by the widest card's block, so the weekly column
+        // (always the last) stands at one x on every card whatever else a card reports.
+        let shownCards = settings.groupByProvider ? groups.filter { !$0.isFolded }.map(\.items) : [visibleAccounts]
+        let widest = shownCards.map { displayColumns($0.map { AccountFacts(usage: $0, settings: settings) }).count }.max() ?? 0
+        let cell = PanelStyle.meterCellWidth(columns: widest, rowWidth: detailedCardWidth - 2 * PanelStyle.cardPadH)
         VStack(alignment: .leading, spacing: PanelStyle.cardGap) {
             if settings.groupByProvider {
                 ForEach(groups) { group in
-                    providerCard(group.providerID, accounts: group.items, folded: group.isFolded)
+                    providerCard(group.providerID, accounts: group.items, folded: group.isFolded, cell: cell)
                 }
             } else {
                 ForEach(groups.filter(\.isFolded)) { group in
-                    providerCard(group.providerID, accounts: [], folded: true)
+                    providerCard(group.providerID, accounts: [], folded: true, cell: cell)
                 }
-                if !visibleAccounts.isEmpty { providerCard(nil, accounts: visibleAccounts, folded: false) }
+                if !visibleAccounts.isEmpty { providerCard(nil, accounts: visibleAccounts, folded: false, cell: cell) }
             }
             let advice = advisorCardLines()
             if !advice.isEmpty { AdvisorCard(lines: advice).frame(width: detailedCardWidth, alignment: .leading) }
         }
     }
 
-    private func providerCard(_ providerID: String?, accounts: [AccountUsage], folded: Bool) -> some View {
+    private func providerCard(_ providerID: String?, accounts: [AccountUsage], folded: Bool, cell: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if let providerID { providerCardHeader(providerID, count: accounts.count) }
-            if !folded, !accounts.isEmpty { accountRows(accounts) }
+            if !folded, !accounts.isEmpty { accountRows(accounts, cell: cell) }
         }
         .frame(width: detailedCardWidth, alignment: .leading)
         .panelCard()
     }
 
-    private func accountRows(_ accounts: [AccountUsage]) -> some View {
+    /// One set of meter columns per card, so every row's figures line up with the titles above them;
+    /// each window kind keeps its own column (a row without a 5-hour window leaves it empty).
+    private func displayColumns(_ rowFacts: [AccountFacts]) -> [MeterColumnKey] {
+        MeterColumns.displayBlock(rowFacts.filter { !$0.isHardError }.map(\.meterKeys))
+    }
+
+    private func accountRows(_ accounts: [AccountUsage], cell: CGFloat) -> some View {
         let rowFacts = accounts.map { AccountFacts(usage: $0, settings: settings) }
-        // One set of meter columns per card, so every row's figures line up with the titles above
-        // them; each window kind keeps its own column (a row without a 5-hour window leaves it empty).
-        let meterColumns = MeterColumns.displayBlock(rowFacts
-            .filter { !$0.isHardError }
-            .map(\.meterKeys))
+        let meterColumns = displayColumns(rowFacts)
         let titles = columnTitles(rowFacts)
         // Once per provider rather than once per row: each pick walks every account (TALLY-7Z).
         let autoPicks = Set(Set(accounts.map(\.providerID)).compactMap { AccountFacts.autoPickID(providerID: $0) })
         let soonest = soonestResets(rowFacts)
         let flat = !settings.groupByProvider
         return VStack(spacing: 0) {
-            columnHead(meterColumns, titles: titles)
+            columnHead(meterColumns, titles: titles, cell: cell)
             ForEach(accounts) { usage in
-                listRow(usage, meterColumns: meterColumns, isAutoPick: autoPicks.contains(usage.id),
+                listRow(usage, meterColumns: meterColumns, cell: cell, isAutoPick: autoPicks.contains(usage.id),
                         soonestResets: soonest[usage.id] ?? [], showsProviderIcon: flat)
             }
         }
@@ -82,9 +89,8 @@ extension PopoverRootView {
         return titles
     }
 
-    private func columnHead(_ keys: [MeterColumnKey], titles: [MeterColumnKey: String]) -> some View {
-        let cell = PanelStyle.meterCellWidth(columns: keys.count)
-        return VStack(spacing: 0) {
+    private func columnHead(_ keys: [MeterColumnKey], titles: [MeterColumnKey: String], cell: CGFloat) -> some View {
+        VStack(spacing: 0) {
             PanelHairline()
             HStack(spacing: PanelStyle.meterGap) {
                 Text(L("Account")).frame(maxWidth: .infinity, alignment: .leading)
@@ -124,10 +130,10 @@ extension PopoverRootView {
         return result
     }
 
-    private func listRow(_ usage: AccountUsage, meterColumns: [MeterColumnKey], isAutoPick: Bool,
+    private func listRow(_ usage: AccountUsage, meterColumns: [MeterColumnKey], cell: CGFloat, isAutoPick: Bool,
                          soonestResets: Set<MeterColumnKey>, showsProviderIcon: Bool) -> some View {
         AccountListRowView(usage: usage, settings: settings, showsDragHandle: true,
-                           meterColumns: meterColumns, isAutoPick: isAutoPick,
+                           meterColumns: meterColumns, meterCellWidth: cell, isAutoPick: isAutoPick,
                            soonestResets: soonestResets, showsProviderIcon: showsProviderIcon)
             .opacity(cardLift?.id == usage.id ? 0 : 1)
             .contentShape(Rectangle())

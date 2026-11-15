@@ -53,7 +53,7 @@ enum PanelMetrics {
         let table = meterCellWidth(columns: columns)
         guard (1 ... 2).contains(columns) else { return table }
         let n = CGFloat(columns)
-        let fit = ((rowWidth - 2 * rowInsetH - meterGap - identityWithName - (n - 1) * meterGap) / n).rounded(.down)
+        let fit = ((rowWidth - 2 * rowInsetH - identityWithName - n * meterGap) / n).rounded(.down)
         return min(table, fit)
     }
 

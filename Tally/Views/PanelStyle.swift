@@ -28,7 +28,6 @@ enum PanelStyle {
     static let headerHeight = PanelMetrics.headerHeight
 
     static func meterCellWidth(columns: Int) -> CGFloat { PanelMetrics.meterCellWidth(columns: columns) }
-    static func meterBlockWidth(columns: Int) -> CGFloat { PanelMetrics.meterBlockWidth(columns: columns) }
     static func meterCellWidth(columns: Int, rowWidth: CGFloat) -> CGFloat {
         PanelMetrics.meterCellWidth(columns: columns, rowWidth: rowWidth)
     }

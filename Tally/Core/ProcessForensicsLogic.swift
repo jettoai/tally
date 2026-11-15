@@ -182,9 +182,13 @@ enum ProcessForensicsLogic {
         text += "path=\(keystrokeStripped(plan.path))\n"
         text += "over_since=\(stamp(plan.since))"
         if let percent = plan.percent { text += " pct=\(Int(percent.rounded()))" }
-        text += own ? "\nprivilege=own\n"
-            : root ? "\nprivilege=root (sample, fs_usage through the Tally evidence helper)\n"
-            : "\nprivilege=none missing=root (sample, fs_usage need root)\n"
+        if own {
+            text += "\nprivilege=own\n"
+        } else if root {
+            text += "\nprivilege=root (sample, fs_usage through the Tally evidence helper)\n"
+        } else {
+            text += "\nprivilege=none missing=root (sample, fs_usage need root)\n"
+        }
         for (job, result) in zip(jobs, results.all) {
             text += section(job.0, result ?? .failure(ProcessForensicsFailure(reason: "not run")))
         }

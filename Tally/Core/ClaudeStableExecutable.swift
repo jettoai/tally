@@ -14,6 +14,11 @@ import os
 // only after it is proven to be the very file the launcher points at (same device and inode),
 // re-linked first when it is not, and the launcher is used whenever that proof cannot be made.
 //
+// The bundle's Info.plist must also be byte for byte the one embedded in that executable (its
+// __TEXT,__info_plist section): the signature binds the embedded bytes, and a bundle executed with
+// any other Info.plist is judged unsigned and killed by AMFI at exec (issue #24). So the plist is
+// synced from the executable, and the bundle is verified before it is returned.
+//
 // Applied at the moment of exec only, never at resolution: a resolved path is also printed into
 // commands a person runs later (renew login, the Terminal fallback), and by then the bundle may be
 // an old version again.
@@ -22,6 +27,8 @@ import os
 struct ClaudeNativeInstall: Sendable {
     var launcher: URL
     var root: URL
+    /// Verifies the bundle directory (0 = valid). A seam for tests that use unsigned stand-ins.
+    var signatureCheck: @Sendable (String) -> OSStatus = { stableBundleSignatureIsValid($0) }
 
     var versions: URL { root.appendingPathComponent("versions", isDirectory: true) }
     var bundleContents: URL { root.appendingPathComponent("ClaudeCode.app/Contents", isDirectory: true) }
@@ -63,41 +70,137 @@ func claudeStableExecutable(_ executable: String,
     guard FileManager.default.fileExists(atPath: install.bundleContents.path, isDirectory: &isDirectory),
           isDirectory.boolValue else { return fallingBack("no-contents") }
     let infoPlist = install.bundleContents.appendingPathComponent("Info.plist")
-    if !FileManager.default.fileExists(atPath: infoPlist.path) { stableWriteInfoPlist(infoPlist) }
-    guard FileManager.default.fileExists(atPath: infoPlist.path) else { return fallingBack("plist-write-failed") }
     if !stableSameFile(bundle, latest) { stableRelink(latest, to: install.bundleExecutable) }
     guard stableSameFile(bundle, latest) else { return fallingBack("relink-failed") }
+    // Only now: the plist has to belong to the executable that was just linked in. An executable
+    // without a readable embedded plist leaves an existing Info.plist to the signature check below.
+    if let expected = claudeEmbeddedInfoPlist(latest) {
+        guard stableSyncInfoPlist(infoPlist, expected: expected) else { return fallingBack("plist-sync-failed") }
+    } else if !FileManager.default.fileExists(atPath: infoPlist.path) {
+        return fallingBack("no-embedded-plist")
+    }
+    let status = install.signatureCheck(install.bundleContents.deletingLastPathComponent().path)
+    guard status == 0 else { return fallingBack("signature-invalid status=\(status)") }
     return access(bundle, X_OK) == 0 ? bundle : fallingBack("not-executable")
 }
 
 private let stableLog = Logger(subsystem: "ai.jetto.tally", category: "stable-exec")
 
-/// Byte for byte the Info.plist Claude Code 2.1.289 itself writes into this bundle (918 bytes,
-/// identical to the one an earlier Claude Code left in place). Written only when the file is
-/// missing; Claude Code overwrites it with its own whenever it maintains the bundle.
-let claudeBundleInfoPlist = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.anthropic.claude-code</string>\
-<key>CFBundleName</key><string>Claude Code</string><key>CFBundleDisplayName</key><string>Claude Code</string>\
-<key>CFBundleExecutable</key><string>claude</string><key>CFBundlePackageType</key><string>APPL</string>\
-<key>LSUIElement</key><true/><key>NSMicrophoneUsageDescription</key>\
-<string>Claude Code uses the microphone for voice dictation.</string><key>NSAppleEventsUsageDescription</key>\
-<string>Claude Code needs to send Apple Events to open URLs and control applications you authorize.</string>\
-<key>NSLocalNetworkUsageDescription</key>\
-<string>Claude Code connects to servers and devices on your local network when commands you run need to reach them.</string>\
-</dict></plist>
+/// The Info.plist bytes embedded in `executable`'s `__TEXT,__info_plist` section, from the slice for
+/// this machine's architecture (thin or fat Mach-O). Raw bytes, not `SecCodeCopySigningInformation`'s
+/// parsed dictionary: the signature binds the bytes. nil on anything unexpected, never a guess.
+func claudeEmbeddedInfoPlist(_ executable: String) -> Data? {
+    let fd = open(executable, O_RDONLY)
+    guard fd >= 0 else { return nil }
+    defer { close(fd) }
+    let maxPlist = 64 * 1024, maxCommands = 256 * 1024
+    guard let magicBytes = stablePread(fd, 0, 4) else { return nil }
+    var base = 0
+    if (stableInt(magicBytes, 0) as UInt32?) != 0xfeedfacf {  // MH_MAGIC_64
+        // FAT_MAGIC / FAT_MAGIC_64: a big-endian table of slices.
+        guard let fatMagic = stableInt(magicBytes, 0, bigEndian: true) as UInt32?,
+              fatMagic == 0xcafebabe || fatMagic == 0xcafebabf,
+              let counts = stablePread(fd, 4, 4), let n = stableInt(counts, 0, bigEndian: true) as UInt32?,
+              n > 0, n <= 16 else { return nil }
+        let wide = fatMagic == 0xcafebabf, entry = wide ? 32 : 20
+        #if arch(arm64)
+        let cpu: UInt32 = 0x0100000c
+        #else
+        let cpu: UInt32 = 0x01000007
+        #endif
+        guard let table = stablePread(fd, 8, Int(n) * entry) else { return nil }
+        var found: Int?
+        for i in 0..<Int(n) where (stableInt(table, i * entry, bigEndian: true) as UInt32?) == cpu {
+            found = wide ? (stableInt(table, i * entry + 8, bigEndian: true) as UInt64?).flatMap { Int(exactly: $0) }
+                         : (stableInt(table, i * entry + 8, bigEndian: true) as UInt32?).map { Int($0) }
+        }
+        guard let slice = found, let inner = stablePread(fd, slice, 4),
+              (stableInt(inner, 0) as UInt32?) == 0xfeedfacf else { return nil }
+        base = slice
+    }
+    // mach_header_64 is 32 bytes: ncmds at 16, sizeofcmds at 20.
+    guard let header = stablePread(fd, base, 32),
+          let ncmds = stableInt(header, 16) as UInt32?, let size = stableInt(header, 20) as UInt32?,
+          ncmds <= 1024, size <= maxCommands,
+          let commands = stablePread(fd, base + 32, Int(size)) else { return nil }
+    var position = 0
+    for _ in 0..<Int(ncmds) {
+        guard let cmd = stableInt(commands, position) as UInt32?,
+              let cmdsize = stableInt(commands, position + 4) as UInt32?,
+              cmdsize >= 8, position + Int(cmdsize) <= commands.count else { return nil }
+        defer { position += Int(cmdsize) }
+        // LC_SEGMENT_64: 72 bytes, then nsects section_64 records of 80 bytes.
+        guard cmd == 0x19, cmdsize >= 72, let nsects = stableInt(commands, position + 64) as UInt32?,
+              72 + Int(nsects) * 80 <= Int(cmdsize) else { continue }
+        for i in 0..<Int(nsects) {
+            let section = position + 72 + i * 80
+            guard stableName(commands, section) == "__info_plist", stableName(commands, section + 16) == "__TEXT" else { continue }
+            guard let length = stableInt(commands, section + 40) as UInt64?,
+                  let offset = stableInt(commands, section + 48) as UInt32?,
+                  length > 0, length <= UInt64(maxPlist) else { return nil }
+            return stablePread(fd, base + Int(offset), Int(length))
+        }
+    }
+    return nil
+}
 
-"""
-
-/// A uniquely named file moved in with RENAME_EXCL, so the plist is never seen half written and one
-/// that already exists (Claude Code's own, or a concurrent caller's) is never replaced.
-private func stableWriteInfoPlist(_ target: URL) {
+/// Makes `target` byte for byte `expected`: untouched when it already is, otherwise a uniquely named
+/// file renamed over it (never seen half written; concurrent callers write the same bytes, so
+/// whoever lands last is the same). False, with the temporary name removed, when it cannot be done.
+private func stableSyncInfoPlist(_ target: URL, expected: Data) -> Bool {
+    if FileManager.default.contents(atPath: target.path) == expected { return true }
     let temporary = target.deletingLastPathComponent()
         .appendingPathComponent(".Info.plist.tally-\(getpid())-\(UUID().uuidString)")
-    guard (try? Data(claudeBundleInfoPlist.utf8).write(to: temporary, options: .withoutOverwriting)) != nil else { return }
-    _ = renamex_np(temporary.path, target.path, UInt32(RENAME_EXCL))
-    Darwin.unlink(temporary.path)
+    guard (try? expected.write(to: temporary, options: .withoutOverwriting)) != nil else { return false }
+    guard Darwin.rename(temporary.path, target.path) == 0 else {
+        Darwin.unlink(temporary.path)
+        return false
+    }
+    stableLog.notice("stable-exec=plist-synced bytes=\(expected.count)")
+    return true
+}
+
+/// 0 when the bundle's signature holds up for what AMFI checks at exec. The flags are deliberate and
+/// must not go back to the defaults: Claude Code's bundle has no sealed resources, so default flags
+/// reject the one that runs fine (-67056) every time, and would also hash the 347 MB executable page
+/// by page (about 140 ms warm, 0.9 s cold). Executable and resources are skipped; the Info.plist
+/// binding, which is what AMFI kills on, is still checked (-67030 / -67062 when it does not match).
+/// Successes are remembered per file identity; failures are not, so a later repair is seen.
+func stableBundleSignatureIsValid(_ bundleRoot: String) -> OSStatus {
+    let executable = bundleRoot + "/Contents/MacOS/claude", plist = bundleRoot + "/Contents/Info.plist"
+    var e = stat(), p = stat()
+    let key = stat(executable, &e) == 0 && stat(plist, &p) == 0
+        ? "\(bundleRoot)|\(e.st_dev):\(e.st_ino)|\(p.st_dev):\(p.st_ino):\(p.st_size):\(p.st_mtimespec.tv_sec).\(p.st_mtimespec.tv_nsec)"
+        : nil
+    if let key, stableSignatureCache.withLock({ $0.contains(key) }) { return 0 }
+    var code: SecStaticCode?
+    let created = SecStaticCodeCreateWithPath(URL(fileURLWithPath: bundleRoot) as CFURL, [], &code)
+    guard created == errSecSuccess, let code else { return created }
+    let flags = SecCSFlags(rawValue: kSecCSDoNotValidateExecutable | kSecCSDoNotValidateResources)
+    let status = SecStaticCodeCheckValidity(code, flags, nil)
+    if status == 0, let key { stableSignatureCache.withLock { _ = $0.insert(key) } }
+    return status
+}
+
+private let stableSignatureCache = OSAllocatedUnfairLock(initialState: Set<String>())
+
+private func stablePread(_ fd: Int32, _ offset: Int, _ count: Int) -> Data? {
+    guard offset >= 0, count >= 0, count <= 1 << 20 else { return nil }
+    var buffer = Data(count: count)
+    let got = buffer.withUnsafeMutableBytes { pread(fd, $0.baseAddress, count, off_t(offset)) }
+    return got == count ? buffer : nil
+}
+
+private func stableInt<T: FixedWidthInteger>(_ data: Data, _ offset: Int, bigEndian: Bool = false) -> T? {
+    guard offset >= 0, offset + MemoryLayout<T>.size <= data.count else { return nil }
+    let raw = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: T.self) }
+    return bigEndian ? T(bigEndian: raw) : T(littleEndian: raw)
+}
+
+/// A fixed 16-byte, NUL-padded Mach-O name field.
+private func stableName(_ data: Data, _ offset: Int) -> String? {
+    guard offset >= 0, offset + 16 <= data.count else { return nil }
+    return String(decoding: data[offset..<offset + 16].prefix { $0 != 0 }, as: UTF8.self)
 }
 
 /// Atomic `ln -f`: a uniquely named link renamed over the target, so the bundle executable is never

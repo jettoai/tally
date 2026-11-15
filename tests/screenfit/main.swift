@@ -27,38 +27,32 @@ check(ScreenFitStack.cap(visible: CGRect(x: 0, y: 0, width: 800, height: 200), t
         == ScreenFitStack.minSurfaceHeight,
       "an absurdly short display gets the floor, not a slit")
 
-section("with a top edge: whichever rule is tighter")
+section("with a top edge: the position does not matter")
 
-// Top edge high on the screen: the room below it exceeds the screen rule, so nothing changes.
+// Top edge high on the screen: the screen rule, as always.
 check(ScreenFitStack.cap(visible: visible, topEdge: visible.maxY) == screenOnly,
-      "a surface at the top of the display is capped exactly as before")
-// The incident's geometry: content top 552pt above the bottom of the visible area.
+      "a surface at the top of the display is capped by the display rule")
+// The B-4640 geometry: dragged low on the same display, the cap must not shrink.
 let low = ScreenFitStack.cap(visible: visible, topEdge: visible.minY + 552)
-check(low == 552, "a surface placed low may only be as tall as the room beneath its own top edge")
-check(low < screenOnly, "and that is tighter than the screen rule, which is the whole point")
-// Dragged so low that the room is less than a usable surface: the floor wins, and the caller
-// accepts that the overflow (and the clamp) comes back down there.
-check(ScreenFitStack.cap(visible: visible, topEdge: visible.minY + 100) == ScreenFitStack.minSurfaceHeight,
-      "below the floor the floor wins, deliberately")
+check(low == screenOnly, "a surface placed low is capped exactly like one placed high")
+check(ScreenFitStack.cap(visible: visible, topEdge: visible.minY + 100) == screenOnly,
+      "even with almost no room below its top edge the cap does not move")
 
-section("the cap never exceeds the room below the top edge")
+section("the cap is the same for every top edge on one display")
 
-// The invariant the fix is really about, swept rather than sampled: for every position where the
-// room is between the floor and the screen rule, the cap fits under the top edge.
-var overflow = 0
-for offset in stride(from: Int(ScreenFitStack.minSurfaceHeight), through: Int(visible.height), by: 7) {
-    let topEdge = visible.minY + CGFloat(offset)
-    if ScreenFitStack.cap(visible: visible, topEdge: topEdge) > topEdge - visible.minY { overflow += 1 }
+var differing = 0
+for offset in stride(from: 0, through: Int(visible.height), by: 7) {
+    if ScreenFitStack.cap(visible: visible, topEdge: visible.minY + CGFloat(offset)) != screenOnly { differing += 1 }
 }
-check(overflow == 0, "no position between the floor and the top of the display can overflow downward")
+check(differing == 0, "sweeping the top edge from the bottom to the top of the display never changes the cap")
 
 section("a screen whose origin is not zero")
 
 // A second display sits at a negative origin in this rig; the arithmetic is relative, never
 // absolute, and reading `minY` as "zero" would silently uncap every surface on such a screen.
 let offscreen = CGRect(x: 2048, y: -288, width: 2560, height: 1400)
-check(ScreenFitStack.cap(visible: offscreen, topEdge: offscreen.minY + 500) == 500,
-      "the room is measured from the display's own bottom, not from y = 0")
+check(ScreenFitStack.cap(visible: offscreen, topEdge: offscreen.minY + 500) == offscreen.height - ScreenFitStack.screenMargin,
+      "a display at a negative origin is capped by its own height, wherever the surface sits")
 
 section("whole points only (the ratchet's source)")
 
@@ -69,8 +63,6 @@ section("whole points only (the ratchet's source)")
 check(ScreenFitStack.cap(visible: CGRect(x: 0, y: 0, width: 2048, height: 1120.4), topEdge: nil)
         == (1120.4 - ScreenFitStack.screenMargin).rounded(.down),
       "a fractional display height still yields a whole-point cap")
-check(ScreenFitStack.cap(visible: visible, topEdge: visible.minY + 479.6) == 479,
-      "a fractional top edge is floored, never rounded up into the room it does not have")
 
 // The residue itself, with child heights that are not exact in binary (a real surface's never
 // are: they come out of text metrics). The old form took the excess off the CHILD, which means

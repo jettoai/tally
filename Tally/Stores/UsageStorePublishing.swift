@@ -52,7 +52,9 @@ extension UsageStore {
               // No known upcoming reset means stale or partial data (e.g. wake-from-sleep with
               // fetches still failing): a nil reset would read as a new cycle and re-fire a stale
               // alert. Skip this round; the next successful fetch recovers naturally.
-              pool.nextReset != nil else { return }
+              pool.nextReset != nil,
+              // Unknown weights leave only the unweighted placeholder, which would misjudge the tier.
+              !pool.weightUnknown else { return }
         DryPoolNotifier.shared.evaluate(
             remaining: pool.totalRemaining,
             // Weighted like `remaining`: a flagship pool mixing plans counts a Max seat as five Pro
@@ -116,6 +118,8 @@ extension UsageStore {
             guard let pool = summary.headline(focusedModel: focused), pool.kind != .session else {
                 continue
             }
+            // Unknown weights: the pool's units are a placeholder, so no combined figure is published.
+            guard !pool.weightUnknown else { continue }
             if summary.planTier == nil { fleet[summary.providerID] = published(pool) }
             // Mirrors FleetStripView.displayedPools, so `tally status` shows the same pool
             // as the panel: the account-wide weekly headline.

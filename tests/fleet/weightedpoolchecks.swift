@@ -127,6 +127,20 @@ func runWeightedPoolTests() {
     expect(alike["codex|weeklyAll"].map { abs($0.perHour - 3) < 1e-9 } == true,
            "B-4685 pace: one plan on every account paces exactly as before")
 
+    // Samples cover only the heavy plan (the light plan sat unchanged for the whole lookback): the
+    // pool is still weighed by its full membership, so Pro 200's 10 points are 100 units / 10h.
+    let heavyOnly = FleetForecast.weeklyRates(samples: rows("codex1", from: 40, to: 50), now: now,
+                                              poolWeights: lookup)
+    expect(heavyOnly["codex|weeklyAll"].map { abs($0.perHour - 10) < 1e-9 } == true,
+           "B-4685 pace: a heavy plan with samples next to a light plan with none is still weighted")
+
+    // Unknown weights are neither published nor notified (UsageStore cannot compile standalone, so
+    // the guards are pinned in source).
+    let publishing = (try? String(contentsOfFile: "Tally/Stores/UsageStorePublishing.swift",
+                                  encoding: .utf8)) ?? ""
+    expect(publishing.components(separatedBy: "!pool.weightUnknown").count == 3,
+           "B-4685 the snapshot and the dry-pool notifier both skip a weightUnknown pool")
+
     // Dryness: 217 units, 11 units an hour, the Pro 200 reset refilling 880 in 6.5h.
     if let pair {
         let dry = FleetForecast.depletion(

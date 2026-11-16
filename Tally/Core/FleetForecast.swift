@@ -37,14 +37,14 @@ enum FleetForecast {
     /// `used` downward and contributes nothing. `planOf` maps a sample's account id to its plan
     /// key when the gauge splits that provider by plan (`FleetMath.planTiers`).
     ///
-    /// `poolWeights` weighs the provider-wide keys: given the account ids behind one key it returns
-    /// each one's weight (`FleetMath.weightLookup`), so a pool mixing plans is paced in the same
+    /// `poolWeights` weighs the provider-wide keys: given the account ids behind one key (and the key)
+    /// it returns each one's weight (`FleetMath.weightLookup`), so a pool mixing plans is paced in the same
     /// unit its remaining is counted in; nil means the weights are unknown and that key gets NO
     /// rate (a pace measured in a unit nobody can name would be a wrong verdict). Plan keys are
     /// never weighted: a plan's members are alike. Without it every account weighs 1.
     static func weeklyRates(samples: [UsageHistory.Sample], now: Date,
                             planOf: (String) -> String? = { _ in nil },
-                            poolWeights: (([String]) -> [String: Double]?)? = nil)
+                            poolWeights: (([String], String) -> [String: Double]?)? = nil)
         -> [String: FleetRate] {
         let weekly = samples.filter {
             $0.window == MetricKind.weeklyAll.rawValue || $0.window == MetricKind.weeklyModel.rawValue
@@ -83,7 +83,7 @@ enum FleetForecast {
             guard hours >= minimumSampleHours else { continue }
             var total = consumed[key] ?? 0
             if let poolWeights, let byAccount = consumedBy[key] {
-                guard let weights = poolWeights(Array(byAccount.keys)) else { continue }
+                guard let weights = poolWeights(Array(byAccount.keys), key) else { continue }
                 total = byAccount.map { $0.value * (weights[$0.key] ?? 1) }.reduce(0, +)
             }
             rates[key] = FleetRate(perHour: total / hours, sampledHours: hours)

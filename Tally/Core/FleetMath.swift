@@ -259,17 +259,31 @@ enum FleetMath {
         return Set(values).count == 1 ? (ones, false) : (values, false)
     }
 
-    /// Per-account weights for the burn-rate pass, looked up by a pool's account ids:
-    /// nil when that pool's weights are unknown (no honest combined pace exists), else id -> weight.
-    /// An id this machine no longer lists weighs 1.
-    static func weightLookup(accounts: [AccountUsage]) -> @Sendable ([String]) -> [String: Double]? {
-        let byID = Dictionary(accounts.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return { ids in
-            let known = ids.compactMap { byID[$0] }
-            let (weights, unknown) = memberWeights(known)
+    /// Per-account weights for the burn-rate pass, looked up by the account ids behind one rate key
+    /// (`FleetForecast.rateKey`: provider|window[|model]): nil when that pool's weights are unknown
+    /// (no honest combined pace exists), else id -> weight. The weights come from the pool's whole
+    /// membership (every account of the provider holding that window), NOT from the ids, which only
+    /// cover accounts with recent samples: a mixed pool whose heavy plan has samples and whose light
+    /// plan has none must still weigh the heavy one by its multiple. An id this machine no longer
+    /// lists weighs 1.
+    static func weightLookup(accounts: [AccountUsage]) -> @Sendable ([String], String) -> [String: Double]? {
+        return { ids, rateKey in
+            let parts = rateKey.split(separator: "|").map(String.init)
+            let provider = parts.first ?? ""
+            let window = parts.count > 1 ? parts[1] : ""
+            let model = parts.count > 2 ? parts[2] : nil
+            var members = accounts.filter { account in
+                account.providerID == provider && account.metrics.contains {
+                    $0.kind.rawValue == window && (model == nil || $0.modelName?.lowercased() == model)
+                }
+            }
+            if members.isEmpty { members = accounts.filter { ids.contains($0.id) } }
+            let (weights, unknown) = memberWeights(members)
             guard !unknown else { return nil }
-            var result = Dictionary(uniqueKeysWithValues: ids.map { ($0, 1.0) })
-            for (account, weight) in zip(known, weights) { result[account.id] = weight }
+            var result = Dictionary(ids.map { ($0, 1.0) }, uniquingKeysWith: { first, _ in first })
+            for (account, weight) in zip(members, weights) where result[account.id] != nil {
+                result[account.id] = weight
+            }
             return result
         }
     }

@@ -80,7 +80,7 @@ Or [download the DMG](https://github.com/jettoai/tally/releases/latest/download/
 
 ## Pin the panel
 
-Pin the dashboard as an always-on-top frosted-glass panel and drag its header anywhere. The account cards render as glass over the panel's backdrop.
+Pin the dashboard as an always-on-top frosted-glass panel and drag it anywhere. Pick one of three forms: a bare ring, a narrow strip with labels, or the full floating panel. On the strip, a close button appears when the pointer moves onto it, and a right-click offers Unpin, the form and the direction. The account cards render as glass over the panel's backdrop.
 
 ## See where your tokens went
 

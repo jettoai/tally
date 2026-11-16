@@ -83,8 +83,7 @@ extension View {
         overlay(alignment: .topLeading) {
             if visible {
                 PinnedCloseButton()
-                    .padding(.leading, PinnedStripMetrics.closeOrigin(radius: radius))
-                    .padding(.top, PinnedStripMetrics.closeOrigin(radius: radius))
+                    .padding([.leading, .top], PinnedStripMetrics.closeOrigin(radius: radius))
                     .transition(.opacity)
             }
         }

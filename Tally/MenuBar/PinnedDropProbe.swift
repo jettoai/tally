@@ -19,8 +19,9 @@ enum PinnedDropProbe {
         let parts = fields.prefix(2).compactMap { Double($0) }
         guard parts.count == 2 else { return }
         let point = CGPoint(x: parts[0], y: parts[1])
-        let switchesToRings = fields.dropFirst(2).first == "rings"
-        let cycles = fields.dropFirst(2).first == "cycle"
+        let mode = fields.dropFirst(2).first
+        let switchesToRings = mode == "rings"
+        let cycles = mode == "cycle"
         // Delayed for the same reason `showMenuForCaptureIfAsked` is: the first moments of a launch
         // have no settled windows, and the panel's restore from its autosaved frame is still landing.
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) {

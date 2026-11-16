@@ -42,18 +42,20 @@ enum WindowSnapshot {
     /// was photographed still at its placeholder height, cutting a 22-account pane to five rows.
     private static let settleDelay: TimeInterval = 4
 
+    /// The `-TallyWindowSnapshot <dir>` folder (tilde expanded), nil when the flag is absent or empty.
+    static var directory: URL? {
+        guard let dir = UserDefaults.standard.string(forKey: flagKey), !dir.isEmpty else { return nil }
+        return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+    }
+
     /// Take the pictures, if this launch asked for them.
     static func captureIfRequested() {
         // Demo data or a dev build, like every flag in this family: it must never be reachable in a
         // release instance somebody is actually using.
-        guard DemoUsage.isActive || BuildVariant.isDev,
-              let dir = UserDefaults.standard.string(forKey: flagKey), !dir.isEmpty else { return }
+        guard DemoUsage.isActive || BuildVariant.isDev, let dir = directory else { return }
         Task { @MainActor in
             let seconds = UserDefaults.standard.double(forKey: burstKey)
-            if seconds > 0 {
-                return await burst(into: URL(fileURLWithPath: (dir as NSString).expandingTildeInPath),
-                                   seconds: seconds)
-            }
+            if seconds > 0 { return await burst(into: dir, seconds: seconds) }
             try? await Task.sleep(for: .seconds(settleDelay))
             // A token or cost page on real data is still reading transcripts at this point; a
             // picture of its spinner is not the page. Bounded so a stuck scan still gets a shot.
@@ -70,7 +72,7 @@ enum WindowSnapshot {
                 if now == frames { break }
                 frames = now
             }
-            write(into: URL(fileURLWithPath: (dir as NSString).expandingTildeInPath))
+            write(into: dir)
         }
     }
 

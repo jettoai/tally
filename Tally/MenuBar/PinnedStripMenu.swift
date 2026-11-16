@@ -63,8 +63,7 @@ enum PinnedStripMenu {
     /// Recording grant, see `WindowSnapshot`) into `-TallyWindowSnapshot <dir>`, plus a text list of
     /// the windows this process has, for the day the menu window is not where it was found.
     private static func photographWhenOpen(as name: String) {
-        guard let dir = UserDefaults.standard.string(forKey: WindowSnapshot.flagKey), !dir.isEmpty else { return }
-        let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+        guard let url = WindowSnapshot.directory else { return }
         let timer = Timer(timeInterval: 1, repeats: false) { _ in
             // The menu's window is not in `NSApp.windows`; the window server lists it under this pid.
             let info = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
@@ -88,8 +87,7 @@ enum PinnedStripMenu {
     /// background gets no menu window on screen to photograph, so what the menu holds is read back
     /// from the menu itself instead.
     static func list(_ menu: NSMenu, as name: String) {
-        guard let dir = UserDefaults.standard.string(forKey: WindowSnapshot.flagKey), !dir.isEmpty else { return }
-        let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+        guard let url = WindowSnapshot.directory else { return }
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         let rows = menu.items.map { item in
             item.isSeparatorItem ? "---" : (item.state == .on ? "[x] " : "    ") + item.title

@@ -21,15 +21,15 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-list.png" alt="Tally's dashboard on demo data: nine accounts (five Claude Max, four Codex) in the compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the round select button and drag handle at the end of each row; above them, an account pool per provider with a forecast of how long it lasts at your pace, and an advisor line that says whether your pace calls for one more account" width="830">
+  <img src="assets/screenshot-list.png" alt="Tally's dashboard on demo data: a Claude section with five accounts and a Codex section with four. Each section opens with a ring gauge for the provider's pooled weekly budget (58% left for Claude, 43% for Codex), the pool's forecast at your pace ("runs dry in about 4d 10h", "lasts at this pace") and the next refill, with a table of accounts below: one row per account with its plan badge and, per window, a bar and percentage (session, Fable and weekly for Claude, weekly for Codex), a red row for the account whose session is used up, a warning triangle on the account whose login expired, banked-reset counts on the Codex rows and a sparkle mark on the launcher's current pick; an advisor card at the bottom says whether your pace calls for one more account" width="452">
 </p>
 
 ## See every account at once
 
-Every Claude and Codex account gets its own row with its 5-hour, weekly and top-model windows, and each provider's accounts pool into one budget that says when it runs dry at your pace ("runs dry in about 4d 10h"). The menu bar shows the same pools without opening anything: one segment per provider (or per plan), session on top and weekly below.
+Every Claude and Codex account gets its own row with its 5-hour, weekly and top-model windows, and each provider's accounts pool into one budget that says when it runs dry at your pace ("runs dry in about 4d 10h"). The menu bar shows the same pools without opening anything: one ring per provider (or per plan), filled to the weekly share still left, and a thinner inner ring for the 5-hour window if you switch it on in Settings.
 
 <p align="center">
-  <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip in its default pooled layout: one Claude segment for five accounts and one Codex segment each for the Pro and Team plans, each stacking the pooled session percentage over the pooled weekly percentage" width="160">
+  <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip in its default pooled layout: three rings, one for the five Claude accounts and one each for the Codex Pro and Team plans, each ring filled to the pooled weekly share that is left with the provider's mark in the middle, followed by a dot that shows a session is waiting on you" width="92">
 </p>
 
 ## Start every session on the account with the most room
@@ -46,7 +46,7 @@ tally codex           # same for Codex
 Every conversation Tally launched becomes a card with its account, model and context size, and whether it is working, idle, or **blocked waiting on you**. A red dot in the menu bar tells you when one is asking for permission, and each card shows what that session is costing the machine (CPU, memory, ports held), read straight from the macOS kernel; Tally does not start a `ps` or `top` process to get them.
 
 <p align="center">
-  <img src="assets/screenshot-sessions.png" alt="Tally's session board on demo data: eight cards, one per supervised conversation, each with its project, account, model and effort, context size, last activity and ports; one card is outlined in red as blocked, a summary line counts working, blocked, idle and not reporting sessions, and each card's footer reads the session's processes, CPU and memory" width="834">
+  <img src="assets/screenshot-sessions.png" alt="Tally's session board on demo data: eight cards, one per supervised conversation, each with its project, account, model and effort, context size, last activity and ports; one card is outlined in red as blocked, a summary line counts working, blocked, idle and not reporting sessions, and each card's footer reads the session's processes, CPU and memory" width="452">
 </p>
 
 https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
@@ -82,12 +82,16 @@ Or [download the DMG](https://github.com/jettoai/tally/releases/latest/download/
 
 Pin the dashboard as an always-on-top frosted-glass panel and drag it anywhere. Pick one of three forms: a bare ring, a narrow strip with labels, or the full floating panel. On the strip, a close button appears when the pointer moves onto it, and a right-click offers Unpin, the form and the direction. The account cards render as glass over the panel's backdrop.
 
+<p align="center">
+  <img src="assets/screenshot-pinned.png" alt="The three forms of a pinned panel side by side on demo data: rings only, a narrow vertical strip with one ring per account; the labeled strip, where each ring is followed by its weekly percentage, the time until it refills and the account name; and the full floating panel, with the dashboard's provider sections, advisor card and footer and its pin button lit" width="720">
+</p>
+
 ## See where your tokens went
 
 Tokens and list-price spend per project, read from the CLIs' own local transcripts. Nothing leaves your Mac, and `tally cost --json` hands the same figures to your scripts.
 
 <p align="center">
-  <img src="assets/screenshot-cost-tokens.png" alt="The Tokens page of the Cost tab: total tokens for the selected range with input, cache write, cache read and output, a Claude and Codex split, and a per-project table with one project expanded into a year-long daily activity heatmap" width="720">
+  <img src="assets/screenshot-cost-tokens.png" alt="The Tokens page of the Cost tab: total tokens for the selected range with input, cache write, cache read and output, a Claude and Codex split, and a per-project table with one project expanded into a year-long daily activity heatmap" width="452">
 </p>
 
 <details>
@@ -96,7 +100,7 @@ Tokens and list-price spend per project, read from the CLIs' own local transcrip
 The Spend page, the one the tab opens on, turns those tokens into money: each project's Claude usage priced at Anthropic's list prices, with the total broken into input, cache write, cache read and output. Codex tokens are counted but left unpriced, since Tally has no price list it trusts for them. `tally cost --json` hands the same figures to your scripts.
 
 <p align="center">
-  <img src="assets/screenshot-cost-spend.png" alt="The Spend page of the Cost tab: total cost for the selected range with the subagent share, the cost split into input, cache write, cache read and output, and a per-project table with each project's cost, share, tokens, cost per million tokens and change from the previous period" width="720">
+  <img src="assets/screenshot-cost-spend.png" alt="The Spend page of the Cost tab: total cost for the selected range with the subagent share, the cost split into input, cache write, cache read and output, and a per-project table with each project's cost, share, tokens, cost per million tokens and change from the previous period" width="452">
 </p>
 
 </details>

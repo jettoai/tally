@@ -21,15 +21,15 @@
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-list.png" alt="Tally 儀表板（示範資料）：九個帳號（五個 Claude Max、四個 Codex）在精簡清單密度下、兩欄並排：每個帳號一行，帶 provider 標記、帳號名稱與方案，接著每個額度窗都是一條附百分比的小 bar，登入失效的帳號有警告三角形，有額度重置存量的 Codex 行顯示存量數字，啟動器目前選擇的帳號有紫色智選標記，每行尾端是圓形選取鈕與拖曳把手；上方是每家的帳號池（照目前速度可撐多久的預測）與顧問列" width="830">
+  <img src="assets/screenshot-list.png" alt="Tally 儀表板（示範資料）：Claude 區五個帳號、Codex 區四個帳號。每區開頭是該服務合池每週預算的圓環儀表（Claude 剩 58%、Codex 剩 43%）、照目前速度的預測（「約 4d 10h 後用光」「照這個速度撐得住」）與下一次回補；下方是帳號表：每個帳號一行，帶方案標籤，每個額度窗各一條 bar 與百分比（Claude 為工作階段、Fable 與每週，Codex 為每週），工作階段用完的帳號整列標紅，登入失效的帳號有警告三角形，Codex 行顯示額度重置存量數字，啟動器目前選擇的帳號有閃光智選標記；最下方的顧問卡說明你的節奏是否需要再多一個帳號" width="452">
 </p>
 
 ## 一眼看完每個帳號
 
-每個 Claude 與 Codex 登入各佔一行，帶著 5 小時、每週與旗艦模型額度窗；帳號池再把同一家的帳號合成一份總預算，並預測照你的節奏何時用光（「約 4d 10h 後用光」）。選單列不用打開任何東西就顯示同樣的池：每個服務（或每種方案）一段，上面是工作階段、下面是每週。
+每個 Claude 與 Codex 登入各佔一行，帶著 5 小時、每週與旗艦模型額度窗；帳號池再把同一家的帳號合成一份總預算，並預測照你的節奏何時用光（「約 4d 10h 後用光」）。選單列不用打開任何東西就顯示同樣的池：每個服務（或每種方案）一個圓環，填滿的比例是每週還剩多少；在「設定」開啟後，圓環內多一圈較細的內環代表 5 小時額度。
 
 <p align="center">
-  <img src="assets/screenshot-menubar.png" alt="Tally 選單列 strip 的預設合池版面：五個帳號合成一段 Claude，Codex 的 Pro 與 Team 方案各一段，每段都把合池後的工作階段百分比疊在合池後的每週百分比之上" width="160">
+  <img src="assets/screenshot-menubar.png" alt="Tally 選單列 strip 的預設合池版面：三個圓環，五個 Claude 帳號合成一個，Codex 的 Pro 與 Team 方案各一個，每個圓環填到合池後每週剩餘的比例、中央是該服務的標記，右側的圓點表示有工作階段正在等你" width="92">
 </p>
 
 ## 每個新 session 都從餘量最多的帳號開始
@@ -46,7 +46,7 @@ tally codex           # Codex 同樣適用
 Tally 啟動的每段對話都會變成一張卡片：帳號、模型、context 大小，以及它是工作中、閒置，還是**卡住在等你**。有 session 在要求權限時，選單列的紅點會提醒你；每張卡片也顯示那個 session 佔了機器多少資源（CPU、記憶體、佔住的 port）。這些數字直接向 macOS 核心讀取，不另外開 `ps` 或 `top` 行程。
 
 <p align="center">
-  <img src="assets/screenshot-sessions.png" alt="Tally 的 session 看板（示範資料）：八張卡片，每段受監督的對話一張，各自寫著專案、帳號、模型與 effort、context 大小、最近活動與 port；其中一張以紅框標示為卡住，摘要列統計工作中、卡住、閒置與未回報的 session，每張卡片底部讀出該 session 的行程數、CPU 與記憶體" width="834">
+  <img src="assets/screenshot-sessions.png" alt="Tally 的 session 看板（示範資料）：八張卡片，每段受監督的對話一張，各自寫著專案、帳號、模型與 effort、context 大小、最近活動與 port；其中一張以紅框標示為卡住，摘要列統計工作中、卡住、閒置與未回報的 session，每張卡片底部讀出該 session 的行程數、CPU 與記憶體" width="452">
 </p>
 
 https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
@@ -81,12 +81,16 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 
 把儀表板釘成永遠置頂的毛玻璃面板，拖到哪都行。可選三種形態：單獨的圓環、帶標籤的窄條，或完整的浮動面板。在窄條上，指標移上去時會出現關閉鈕；按右鍵可選擇取消釘選、形態與方向。帳號卡片會以玻璃質感呈現在面板背景之上。
 
+<p align="center">
+  <img src="assets/screenshot-pinned.png" alt="釘選面板的三種形態並排（示範資料）：純圓環，一條窄窄的直排，每個帳號一個圓環；有字窄條，每個圓環後面接著每週百分比、距離重置的時間與帳號名稱；以及完整的浮動面板，有儀表板的各服務區、顧問卡與底部列，釘選鈕亮起" width="720">
+</p>
+
 ## 看清 Token 花到哪裡
 
 每個專案的 Token 與牌價花費，資料讀自 CLI 自己的本機 transcript。沒有任何東西離開你的 Mac，`tally cost --json` 把同一份數字交給你的腳本。
 
 <p align="center">
-  <img src="assets/screenshot-cost-tokens.png" alt="「成本」分頁的 Token 頁：所選區間的 Token 總計，附輸入、快取寫入、快取讀取與輸出，Claude 與 Codex 的拆分，以及一張專案表，其中一個專案展開成一整年的每日活動熱力圖" width="720">
+  <img src="assets/screenshot-cost-tokens.png" alt="「成本」分頁的 Token 頁：所選區間的 Token 總計，附輸入、快取寫入、快取讀取與輸出，Claude 與 Codex 的拆分，以及一張專案表，其中一個專案展開成一整年的每日活動熱力圖" width="452">
 </p>
 
 <details>
@@ -95,7 +99,7 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 花費頁（分頁預設打開的那頁）把這些 Token 換算成金額：依 Anthropic 牌價計算每個專案的 Claude 用量，總額再拆成輸入、快取寫入、快取讀取與輸出。Codex 的 Token 會計入，但沒有換算金額，因為 Tally 沒有一份可信的 Codex 價目表。跑 `tally cost --json` 就能讓腳本拿到同一份數字。
 
 <p align="center">
-  <img src="assets/screenshot-cost-spend.png" alt="「成本」分頁的花費頁：所選區間的總花費與 subagent 佔比，花費拆成輸入、快取寫入、快取讀取與輸出，以及一張專案表，列出每個專案的花費、佔比、Token 數、每百萬 Token 花費與跟前一期的變化" width="720">
+  <img src="assets/screenshot-cost-spend.png" alt="「成本」分頁的花費頁：所選區間的總花費與 subagent 佔比，花費拆成輸入、快取寫入、快取讀取與輸出，以及一張專案表，列出每個專案的花費、佔比、Token 數、每百萬 Token 花費與跟前一期的變化" width="452">
 </p>
 
 </details>

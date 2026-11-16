@@ -30,7 +30,9 @@ extension DemoUsage {
         let codexTotal = max(4, Int((Double(total) * 6 / 22).rounded()))
         let claudeExtra = min(extraClaudeNames.count, max(0, total - codexTotal - 5))
         let codexExtra = min(extraCodexNames.count, max(0, codexTotal - 4))
-        let claudePlans = ["Ultra", "Max", "Pro", "Ultra", "Team"]
+        // "Max" rather than "Team": Team has no published multiple, which would turn every
+        // mixed-plan Claude card head into the "cannot combine" state (B-4685).
+        let claudePlans = ["Ultra", "Max", "Pro", "Ultra", "Max"]
         let codexPlans = ["Plus", "Pro", "Team"]
 
         func figure(_ seed: Int, _ step: Int, _ floor: Int, _ span: Int) -> Double {
@@ -67,6 +69,28 @@ extension DemoUsage {
             return renamed(usage, extraCodexNames[index], number: number)
         }
         return claudes + codexes
+    }
+
+    /// `-TallyDemoCodexPair YES` (Debug builds only): Codex shows only the B-4685 pair, Pro 200 at
+    /// 12% left (88% used) (resets in 6.5 hours) beside Team at 97% left (resets in 6 days), whose plan-weighted
+    /// pool reads 20%. `-TallyDemoCodexPair unpublished` swaps the Team seat for Business Premium,
+    /// a plan with no published multiple, so the pool cannot be combined. Every other provider's
+    /// fixtures stay as they are; without the flag nothing here does anything.
+    static func applyingCodexPair(_ fixtures: [AccountUsage], now: Date) -> [AccountUsage] {
+        #if DEBUG
+        guard isActive, let mode = UserDefaults.standard.string(forKey: "TallyDemoCodexPair")?.lowercased(),
+              !mode.isEmpty, mode != "no" else { return fixtures }
+        let second = mode == "unpublished"
+            ? codex("codex2", plan: "Business Premium", planKey: "self_serve_business_prolite",
+                    email: "sam2@example.com", weekly: 20, weeklyResetDays: 3, resets: 0, now: now)
+            : codex("codex2", plan: "Team", planKey: "team", email: "sam2@example.com",
+                    weekly: 3, weeklyResetDays: 6, resets: 0, now: now)
+        return fixtures.filter { $0.providerID != "codex" }
+            + [codex("codex1", plan: "Pro 200", planKey: "pro", email: "sam@example.com",
+                     weekly: 88, weeklyResetDays: 6.5 / 24, resets: 0, now: now), second]
+        #else
+        return fixtures
+        #endif
     }
 
     /// `-TallyDemoModelWindows Fable,Sonnet` (Debug builds only): the model-scoped weekly windows

@@ -129,16 +129,18 @@ extension PopoverRootView {
         let pools = summary.map(displayedPools) ?? []
         if let summary, let pool = pools.first(where: { $0.kind == .weeklyAll }) ?? pools.first {
             let now = Date()
-            let tint = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining).color
+            // No combined figure (plans with an unpublished multiple, B-4685): an empty bar and a dash.
+            let average = pool.combinedAverage
+            let tint = (average.map { MetricSeverity.fromUsedPercent(100 - $0) } ?? .unknown).color
             HStack(spacing: 6) {
                 Text(UsageLayout.windowName(pool.kind)).foregroundStyle(.secondary).fixedSize()
                 RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(LayoutTint.track)
                     .frame(width: LedgerMetrics.poolBarWidth(bar), height: LedgerMetrics.barHeight)
                     .overlay(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 2.5, style: .continuous).fill(tint)
-                            .frame(width: max(1, LedgerMetrics.poolBarWidth(bar) * pool.averageRemaining / 100))
+                            .frame(width: max(1, LedgerMetrics.poolBarWidth(bar) * (average ?? 0) / 100))
                     }
-                Text(verbatim: "\(Int(pool.averageRemaining.rounded()))%").monospacedDigit()
+                Text(verbatim: average.map { "\(Int($0.rounded()))%" } ?? "—").monospacedDigit()
                 if case .some(.some(let dry)) = poolDryDate(summary, pool, now: now) {
                     Text(verbatim: "⧗ " + UsageFormat.durationBody(dry.timeIntervalSince(now)))
                         .foregroundStyle(TallyColor.warningInk)

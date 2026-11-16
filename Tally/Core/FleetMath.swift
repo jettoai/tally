@@ -24,6 +24,12 @@ struct FleetPool: Hashable {
         /// This account's capacity in the pool's unit (`FleetMath.memberWeights`); 1 for a pool of
         /// one plan.
         var weight: Double = 1
+        /// The account's plan as shown, and its PUBLISHED multiple (nil = the vendor publishes none)
+        /// with how sure that multiple is. `weight` holds the placeholder 1 for an unpublished one;
+        /// these say what the pool's weighting rests on (`PoolWeighting`).
+        var plan: String? = nil
+        var multiple: Double? = nil
+        var multipleSource: PlanWeight.Source? = nil
     }
 
     /// A scheduled quota refill: when a member's window rolls over, the pool gets back what that
@@ -308,8 +314,12 @@ enum FleetMath {
         let (weights, unknown) = memberWeights(entries.map(\.0))
         let poolWeight = weights.reduce(0, +)
         let members = zip(entries, weights).map { entry, weight in
-            FleetPool.Member(accountLabel: label(entry.0), remaining: entry.1.remainingPercent,
-                             severity: entry.1.severity, resetsAt: entry.1.resetsAt, weight: weight)
+            let published = PlanWeight.weight(providerID: entry.0.providerID,
+                                              plan: PlanWeight.key(of: entry.0))
+            return FleetPool.Member(accountLabel: label(entry.0), remaining: entry.1.remainingPercent,
+                                    severity: entry.1.severity, resetsAt: entry.1.resetsAt,
+                                    weight: weight, plan: entry.0.planName,
+                                    multiple: published?.value, multipleSource: published?.source)
         }
         let refills = zip(entries, weights)
             .compactMap { entry, weight in
@@ -342,6 +352,9 @@ enum FleetMath {
 ///  The vendors publish the multiples for overall usage, so applying them to the weekly window is
 ///  an assumption.
 enum PlanWeight {
+    /// When the table above was last checked against the vendors' pages; the hover says so.
+    static let checkedOn = "2026-11-16"
+
     enum Source: String, Hashable {
         /// Read off the vendor's own pricing page.
         case detected

@@ -12,12 +12,15 @@ struct PoolRingView: View {
     /// The figure with its percent sign ("58%"); the sign is drawn small and raised.
     var figure: String
     var caption: String? = nil
+    /// The groove is drawn dashed: the ring has no figure to show (a pool that cannot be combined).
+    var dashed = false
 
     var body: some View {
         let width = PanelStyle.ringStroke
         let inset = width / 2 + 0.5
         ZStack {
-            Circle().inset(by: inset).stroke(severity.groove, lineWidth: width)
+            Circle().inset(by: inset)
+                .stroke(severity.groove, style: StrokeStyle(lineWidth: width, dash: dashed ? [3, 4] : []))
             if fraction > 0 {
                 Circle().inset(by: inset)
                     .trim(from: 0, to: min(1, fraction))

@@ -105,7 +105,10 @@ extension PopoverRootView {
     /// One pool as a short bar, what is left in it and when the next refill lands.
     @ViewBuilder
     private func trayPool(_ summary: FleetSummary, showsRefill: Bool = true) -> some View {
-        if let pool = displayedPools(summary).first {
+        if let pool = displayedPools(summary).first, pool.combinedAverage == nil {
+            // Plans with no published multiple cannot be pooled: no figure rather than a placeholder (B-4685).
+            Text(verbatim: "—").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+        } else if let pool = displayedPools(summary).first {
             let remaining = pool.averageRemaining
             let tint = MetricSeverity.fromUsedPercent(100 - remaining).color
             HStack(spacing: 5) {

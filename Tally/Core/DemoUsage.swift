@@ -195,7 +195,7 @@ enum DemoUsage {
                   weeklyResetDays: 4.8, resets: 2,
                   expiresInHours: [220, nil], now: now),
         ]
-        var result = fixtures + manyAccountsExtras(now: now)
+        var result = applyingCodexPair(fixtures + manyAccountsExtras(now: now), now: now)
         if showsSmartTie {
             result = result.map { usage in
                 guard let tie = smartTieFixtures[usage.id] else { return usage }
@@ -459,12 +459,13 @@ enum DemoUsage {
 
     /// A Codex account with the weekly window only (B-4609: real Codex accounts report no 5h
     /// window, so the demo card has no SESSION column either).
-    static func codex(_ label: String, plan: String, email: String,
+    static func codex(_ label: String, plan: String, planKey: String? = nil, email: String,
                               weekly: Double, weeklyResetDays: Double,
                               resets: Int, expiresInHours: [Double?] = [],
                               now: Date) -> AccountUsage {
         AccountUsage(
             id: "codex:demo-\(label)", providerID: "codex", accountLabel: label, planName: plan,
+            planKey: planKey,
             // Spelled out per fixture rather than derived from the label (which is what the Claude
             // ones do): two of these deliberately share one address, and a derivation cannot say so.
             accountEmail: email,

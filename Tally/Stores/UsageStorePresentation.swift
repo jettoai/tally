@@ -120,7 +120,8 @@ extension UsageStore {
             // short of members (MenuBarSegments.windowGaps).
             let drawn = MenuBarSegments.pools(summary, focusedModel: Self.focusedModel)
             let parts = drawn.map { pool in
-                let value = mode == .used ? 100 - pool.averageRemaining : pool.averageRemaining
+                guard let average = pool.combinedAverage else { return "\(L(pool.label)) —" }
+                let value = mode == .used ? 100 - average : average
                 return "\(L(pool.label)) \(Int(value.rounded()))%"
             }
             let stale = members.contains(where: \.isStale) ? " (\(L("Outdated")))" : ""

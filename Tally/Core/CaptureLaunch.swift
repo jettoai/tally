@@ -146,6 +146,9 @@ enum CaptureLaunch {
                                "TallyDemoAccounts",
                                // Qualifies TallyDemoData: headings draw this Mac's real launch chip (Debug).
                                "TallyDemoLaunchChip",
+                               // Qualifies TallyDemoData: Codex shows the plan-weighted pair, or with
+                               // `unpublished` Pro 200 beside a plan with no published multiple (B-4685, Debug).
+                               "TallyDemoCodexPair",
                                // Qualifies TallyDemoData: the Claude fixtures' model windows (Debug).
                                "TallyDemoModelWindows",
                                // Qualifies TallyDemoData: no Claude fixture has a 5-hour window (Debug).

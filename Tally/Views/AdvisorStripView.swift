@@ -344,14 +344,15 @@ extension PopoverRootView {
         // THE LADDER: the whole point of the shorter windows is the COMPARISON (is this week still
         // last month's average?), so every rung sits in one column.
         rows.append(contentsOf: ladderLines(reading))
-        let refills = upcomingRefills(reading.provider, now: now)
+        let (refills, combined) = upcomingRefills(reading.provider, now: now)
         if !refills.isEmpty {
             rows.append(TallyTooltipRow(L("Next refill"), "", style: .strong))
             for refill in refills {
                 rows.append(TallyTooltipRow(
                     refill.accountLabel,
                     UsageFormat.countdownBody(refill.at, now: now) + " · " + UsageFormat.absoluteBody(refill.at)
-                        + " · +" + refill.poolShareText,
+                        // A pool that cannot be combined has no share to quote (B-4685).
+                        + (combined ? " · +" + refill.poolShareText : ""),
                     style: .sub))
             }
         }
@@ -370,19 +371,20 @@ extension PopoverRootView {
     /// own binding window stands in - built as a one-member refill, which is exactly what the pool
     /// math would have made of it: the window's reset instant, and the used percent as the gain
     /// (a one-member pool, so the pool share is the gain).
-    private func upcomingRefills(_ providerID: String, now: Date) -> [FleetPool.Refill] {
+    private func upcomingRefills(_ providerID: String, now: Date)
+        -> (refills: [FleetPool.Refill], combined: Bool) {
         let accounts = store.orderedAccounts.filter { $0.providerID == providerID }
         let summaries = FleetMath.summaries(accounts: accounts, now: now) { usage in
             settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
         }
         if let summary = summaries.first, let pool = displayedPools(summary).first {
-            return Array(pool.refills.prefix(2))
+            return (Array(pool.refills.prefix(2)), !pool.weightUnknown)
         }
         guard accounts.count == 1, let single = accounts.first,
               let window = single.metrics.first(where: { $0.kind == .weeklyAll }) ?? single.headline,
               let at = window.resetsAt, at > now
-        else { return [] }
+        else { return ([], true) }
         let label = settings.displayLabel(accountID: single.id, fallback: single.accountLabel)
-        return [FleetPool.Refill(at: at, accountLabel: label, gain: window.usedPercent, poolSize: 1)]
+        return ([FleetPool.Refill(at: at, accountLabel: label, gain: window.usedPercent, poolSize: 1)], true)
     }
 }

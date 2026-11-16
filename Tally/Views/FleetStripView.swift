@@ -140,7 +140,8 @@ extension PopoverRootView {
             .font(.caption2)
             .lineLimit(1)
             .tallyTooltip("\(poolDisplayName(pool)) · \(phrase.text)")
-        let refill = pool.refills.first.map { refillLabel($0, compact: true) }
+        // The refill's "+x%" is a share of the pool, which a pool that cannot be combined has not got.
+        let refill = pool.weightUnknown ? nil : pool.refills.first.map { refillLabel($0, compact: true) }
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: Self.fleetRowSpacing) {
                 forecast
@@ -167,13 +168,16 @@ extension PopoverRootView {
     }
 
     func poolDisplayName(_ pool: FleetPool) -> String {
-        poolDisplayName(kind: pool.kind, modelName: pool.modelName, label: pool.label)
+        poolDisplayName(kind: pool.kind, modelName: pool.modelName, label: pool.label,
+                        weighted: PoolWeighting.kind(of: pool) == .weighted)
     }
 
     /// The same name from the parts alone, for a caller holding a pool's identity rather than the
     /// pool (the hover's model). ONE implementation, so the gauge's rows and its hover can
-    /// never name the same pool two ways.
-    private func poolDisplayName(kind: MetricKind, modelName: String?, label: String) -> String {
+    /// never name the same pool two ways. `weighted`: the pool counts plans of different multiples,
+    /// which the account-wide weekly pool says in its name (B-4685).
+    private func poolDisplayName(kind: MetricKind, modelName: String?, label: String,
+                                 weighted: Bool = false) -> String {
         switch kind {
         case .weeklyModel:
             let model = modelName ?? label
@@ -181,7 +185,7 @@ extension PopoverRootView {
         case .session:
             return L("5-hour pool")
         default:
-            return L("Weekly pool")
+            return weighted ? L("Weighted weekly pool") : L("Weekly pool")
         }
     }
 
@@ -194,8 +198,8 @@ extension PopoverRootView {
     /// and the invented "accounts' worth" unit lives in the tooltip instead). Follows the
     /// Used/Left toggle like every meter.
     private func worthValue(_ pool: FleetPool) -> String {
-        percent(settings.displayMode == .used
-            ? 100 - pool.averageRemaining : pool.averageRemaining)
+        guard let average = pool.combinedAverage else { return PoolWeighting.noFigure }
+        return percent(settings.displayMode == .used ? 100 - average : average)
     }
 
     /// When this pool runs dry at its measured pace, `.some(nil)` when it outlasts the forecast
@@ -204,7 +208,7 @@ extension PopoverRootView {
     /// question and must get the same answer: its "short at this pace" is exactly this
     /// line's amber "runs dry in about", never a second threshold.
     func poolDryDate(_ summary: FleetSummary, _ pool: FleetPool, now: Date) -> Date?? {
-        guard pool.kind != .session else { return nil }
+        guard pool.kind != .session, !pool.weightUnknown else { return nil }
         guard let rate = store.fleetRates[FleetForecast.rateKey(
             provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName,
             plan: summary.planTier?.key)] else { return nil }
@@ -221,6 +225,9 @@ extension PopoverRootView {
     func forecastPhrase(_ summary: FleetSummary,
                                 _ pool: FleetPool) -> (text: String, tint: Color) {
         guard pool.kind != .session else { return ("", .secondary) }
+        // A pool that cannot be combined has no pace to measure; it says nothing rather than
+        // "measuring pace" forever.
+        guard !pool.weightUnknown else { return ("", .secondary) }
         let now = Date()
         guard let outlook = poolDryDate(summary, pool, now: now) else {
             return (L("measuring pace…"), Color.secondary.opacity(0.7))
@@ -288,8 +295,9 @@ extension PopoverRootView {
     private func pooledBar(_ pool: FleetPool) -> some View {
         let mode = settings.displayMode
         let capacity = pool.capacity
-        let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
-        let shown = mode == .used ? capacity - pool.totalRemaining : pool.totalRemaining
+        // No combined figure: an empty groove, never the unweighted placeholder's fill.
+        let severity = pool.combinedAverage.map { MetricSeverity.fromUsedPercent(100 - $0) } ?? .unknown
+        let shown = pool.weightUnknown ? 0 : (mode == .used ? capacity - pool.totalRemaining : pool.totalRemaining)
         return GeometryReader { geo in
             ZStack(alignment: mode == .used ? .leading : .trailing) {
                 Capsule().fill(severity.groove)
@@ -320,18 +328,12 @@ extension PopoverRootView {
         summaries.compactMap { summary in
             guard let model = FleetTooltip.model(summary, displayed: displayedPools(summary))
             else { return nil }
-            var rows: [TallyTooltipRow] = [
-                TallyTooltipRow(
-                    poolDisplayName(kind: model.poolKind, modelName: model.poolModelName,
-                                    label: model.poolLabel),
-                    // The string the old wall already used, word for word, so this carries no new
-                    // translation: the capacity unit is unchanged, only where it is shown. BOTH
-                    // interpolations are Strings on purpose - the count as an Int makes the key
-                    // "%@/%lld …", which matches no entry in the catalog and silently renders the
-                    // English source in every other language (caught in the zh capture, 2026-08-04).
-                    String(localized: "\(worth(model.unitsRemaining))/\(String(model.poolAccountCount)) accounts' worth left",
-                           bundle: AppLocale.bundle))
-            ]
+            // The pool being explained is the one the model describes: the leading displayed pool.
+            let weighting = displayedPools(summary).first.map { PoolWeighting($0, unknownPlan: L("Unknown plan")) }
+            let poolName = poolDisplayName(kind: model.poolKind, modelName: model.poolModelName,
+                                           label: model.poolLabel, weighted: weighting?.kind == .weighted)
+            var rows = capacityRows(poolName: poolName, model: model, weighting: weighting,
+                                    providerID: summary.providerID)
             // The one thing a pooled average structurally hides: four healthy accounts and one at
             // 3% average out fine. Named with its account, because "which of them" is the next
             // question and the answer is two words long.
@@ -362,4 +364,52 @@ extension PopoverRootView {
         }
     }
 
+    /// The hover's capacity rows. A pool of one weight keeps the line the old hover always had
+    /// ("1.4/4 accounts' worth left"). A weighted pool counts in the lowest plan's weeks, because
+    /// an account count would claim every account is the same size, and names each seat's multiple
+    /// and where the multiples come from. A pool that cannot be combined lists what each plan has
+    /// left on its own and says which plan has no published multiple.
+    private func capacityRows(poolName: String, model: FleetTooltip.Model, weighting: PoolWeighting?,
+                              providerID: String) -> [TallyTooltipRow] {
+        switch weighting?.kind ?? .equal {
+        case .equal:
+            return [TallyTooltipRow(
+                poolName,
+                // The string the old wall already used, word for word, so this carries no new
+                // translation: the capacity unit is unchanged, only where it is shown. BOTH
+                // interpolations are Strings on purpose - the count as an Int makes the key
+                // "%@/%lld ...", which matches no entry in the catalog and silently renders the
+                // English source in every other language (caught in the zh capture, 2026-08-04).
+                String(localized: "\(worth(model.unitsRemaining))/\(String(model.poolAccountCount)) accounts' worth left",
+                       bundle: AppLocale.bundle))]
+        case .weighted:
+            guard let weighting else { return [] }
+            let lowest = providerID == "claude" ? "Pro" : "Plus"
+            let vendor = providerID == "claude" ? "Anthropic" : providerID == "codex" ? "OpenAI"
+                : ProviderCatalog.displayName(for: providerID)
+            let source = String(format: L("%1$@ published multiples, checked %2$@"), vendor, PlanWeight.checkedOn)
+            return [
+                TallyTooltipRow(poolName, String(format: L("%1$@/%2$@ %3$@ weeks left"),
+                                                 weeks(weighting.weeksLeft), weeks(weighting.weeksTotal), lowest)),
+                TallyTooltipRow(weighting.seatsText(announcedWord: L("announced")), "", style: .detail),
+                TallyTooltipRow(source, "", style: .detail),
+            ]
+        case .unknown:
+            guard let weighting else { return [] }
+            let unpublished = weighting.unpublishedPlans.joined(separator: ", ")
+            return [TallyTooltipRow(poolName, L("Can't combine"))]
+                + weighting.planShares.map { share in
+                    TallyTooltipRow(share.plan, percent(settings.displayMode == .used
+                                                        ? 100 - share.remaining : share.remaining))
+                }
+                + [TallyTooltipRow(String(format: L("%@ has no published multiple, so the plans cannot be added together."),
+                                          unpublished), "", style: .note)]
+        }
+    }
+
+    /// Lowest-plan weeks, one decimal and no trailing ".0": 2.2 of 11.
+    private func weeks(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        return rounded == rounded.rounded() ? "\(Int(rounded))" : String(format: "%.1f", rounded)
+    }
 }

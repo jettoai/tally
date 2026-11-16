@@ -22,7 +22,9 @@ extension PopoverRootView {
 
     /// The pace verdict, in the gauge's own words, and how worried to look about it.
     private func paceChip(_ summary: FleetSummary, _ pool: FleetPool) -> (text: String, state: PanelChipState)? {
-        guard pool.kind != .session, let outlook = poolDryDate(summary, pool, now: Date()) else { return nil }
+        // No combined figure, no pace: a verdict over a pool that cannot be combined would be a guess.
+        guard pool.kind != .session, !pool.weightUnknown,
+              let outlook = poolDryDate(summary, pool, now: Date()) else { return nil }
         let text = forecastPhrase(summary, pool).text
         guard let dry = outlook else { return (text, .green) }
         return (text, dry.timeIntervalSinceNow < 86_400 ? .red : .amber)
@@ -122,8 +124,13 @@ extension PopoverRootView {
     /// its state's colour from the one meter palette.
     private func poolRing(_ providerID: String, _ pool: FleetPool) -> some View {
         let used = settings.displayMode == .used
-        let shown = used ? 100 - pool.averageRemaining : pool.averageRemaining
-        let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
+        // A pool of plans with an unpublished multiple has no figure: an empty dashed ring, never
+        // the unweighted placeholder average.
+        guard let shown = PoolWeighting.ringShare(pool, used: used), let average = pool.combinedAverage else {
+            return PoolRingView(fraction: 0, severity: .unknown, figure: PoolWeighting.noFigure,
+                                caption: L("No total").uppercased(), dashed: true)
+        }
+        let severity = MetricSeverity.fromUsedPercent(100 - average)
         let caption = severity == .exhausted ? L("Used up") : (used ? L("Used") : L("Left"))
         return PoolRingView(fraction: shown / 100, severity: severity,
                             figure: "\(Int(shown.rounded()))%",
@@ -131,14 +138,20 @@ extension PopoverRootView {
     }
 
     /// Which pool the ring shows and its next refill, ticking a minute at a time like every other
-    /// countdown on the panel.
+    /// countdown on the panel. A pool that cannot be combined says why instead of a refill.
     private func poolLine(_ pool: FleetPool) -> some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let refill = pool.refills.first.map { " · " + refillText($0, now: context.date, compact: true) } ?? ""
-            Text(poolDisplayName(pool) + refill)
+            let unpublished = PoolWeighting(pool, unknownPlan: L("Unknown plan")).unpublishedPlans
+                .joined(separator: ", ")
+            let tail = pool.weightUnknown
+                ? " · " + String(format: L("%@ allowance not published, cannot combine"), unpublished)
+                : refill
+            Text(poolDisplayName(pool) + tail)
                 .font(PanelStyle.font(11.5, 400))
                 .foregroundStyle(PanelStyle.text2)
-                .lineLimit(1)
+                // The reason a pool cannot be combined is a sentence, which an English card would clip.
+                .lineLimit(pool.weightUnknown ? 2 : 1)
         }
     }
 }

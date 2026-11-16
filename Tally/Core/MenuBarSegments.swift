@@ -187,9 +187,11 @@ enum MenuBarSegments {
                 // meter does not - an account the provider reports at 103% used prints 103% on its
                 // own segment and 100% in a pool, because `remainingPercent` floors at zero before
                 // anything is averaged.
-                return percent(used: 100 - pool.averageRemaining, remaining: pool.averageRemaining, mode: mode)
+                // A pool of plans with an unpublished multiple has no combined figure (B-4685).
+                guard let average = pool.combinedAverage else { return "—" }
+                return percent(used: 100 - average, remaining: average, mode: mode)
             }
-            let readable = zip(drawn, unknown).filter { !$0.1 }.map(\.0)
+            let readable = zip(drawn, unknown).filter { !$0.1 && $0.0.combinedAverage != nil }.map(\.0)
             let weekly = drawn.last.flatMap { last in readable.last == last ? last : nil }
             let session = readable.first { $0.kind == .session }
             return MenuBarSegment(

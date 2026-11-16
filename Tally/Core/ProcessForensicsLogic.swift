@@ -64,6 +64,18 @@ struct ProcessForensicsFailure: Error, Equatable, Sendable { var reason: String 
 
 typealias ProcessForensicsJob = @Sendable () -> Result<String, ProcessForensicsFailure>
 
+/// One process in the fs_usage ranking: `changes` counts calls that create, rename, delete or re-attribute
+/// a file (attempts included), `events` every line it caused.
+struct FsUsageWriter: Equatable, Sendable { var name: String; var changes: Int; var events: Int }
+
+struct FsUsageSummary: Equatable, Sendable {
+    var writers: [FsUsageWriter]   // at most `limit`, ranked
+    var lines: Int                 // complete timestamped lines in the segment
+    var unparsed: Int              // complete timestamped lines with no `name.tid` at the end
+    var span: Double?              // seconds between the first and the last of those lines
+    var cut: Bool                  // the helper's 10 MB cap ended the segment mid-line
+}
+
 /// The probes' answers, one slot each, written from several threads at once.
 private final class ProcessForensicsResults: @unchecked Sendable {
     private let lock = NSLock()
@@ -146,6 +158,120 @@ enum ProcessForensicsLogic {
         return String(decoding: Array(text.utf8.prefix(room)), as: UTF8.self) + marker
     }
 
+    // MARK: - fs_usage ranking
+
+    /// Must equal the `head -c` value in ProcessForensicsPrivilege.wrapperScript (a test compares the two).
+    static let fsUsageCap = 10_485_760
+
+    /// fs_usage calls that make fseventsd work: they create, rename, delete or re-attribute a file. The
+    /// intersection of the candidate list with `strings /usr/bin/fs_usage` (all 29 present on 2026-11-16);
+    /// re-derive with: for c in <candidates>; do strings /usr/bin/fs_usage | command grep -qx "$c" && echo "$c"; done
+    private static let fsUsageChangeCalls: Set<String> = [
+        "chmod", "chown", "exchangedata", "fchmod", "fchown", "fremovexattr", "fsetattrlist", "fsetxattr", "ftruncate",
+        "futimes", "lchown", "link", "linkat", "mkdir", "mkdirat", "mkfifo", "removexattr", "rename", "renameat", "rmdir",
+        "setattrlist", "setxattr", "symlink", "symlinkat", "truncate", "unlink", "unlinkat", "utimes"]
+    /// These count only when the flag column `(_WC_T_...)` says write (2nd cell W), create (3rd C) or truncate (5th T).
+    private static let fsUsageOpenCalls: Set<String> = ["open", "openat", "guarded_open_np"]
+    /// fs_usage's own readers: never the cause, whatever their lines say.
+    private static let fsUsageSelf: Set<String> = ["fs_usage", "sample"]
+
+    /// Whether an open line's flag column asks to write, create or truncate.
+    private static func opensForWrite(_ rest: Substring) -> Bool {
+        var from = rest.startIndex
+        while let open = rest[from...].firstIndex(of: "(") {
+            let flags = rest[rest.index(after: open)...].prefix(while: { $0 == "_" || ($0 >= "A" && $0 <= "Z") })
+            if flags.count >= 5, rest[flags.endIndex...].first == ")" {
+                let cells = Array(flags)
+                return cells[1] == "W" || cells[2] == "C" || cells[4] == "T"
+            }
+            from = rest.index(after: open)
+        }
+        return false
+    }
+
+    /// Seconds since midnight of a `HH:MM:SS.ffffff` stamp opening `line`, nil when it does not.
+    private static func stampSeconds(_ line: Substring) -> Double? {
+        let b = Array(line.utf8.prefix(15))
+        guard b.count == 15, b[2] == 58, b[5] == 58, b[8] == 46 else { return nil }
+        var digits = [Double]()
+        for i in [0, 1, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14] {
+            guard b[i] >= 48, b[i] <= 57 else { return nil }
+            digits.append(Double(b[i] - 48))
+        }
+        return (digits[0] * 10 + digits[1]) * 3600 + (digits[2] * 10 + digits[3]) * 60 + digits[4] * 10 + digits[5]
+            + (digits[6] * 100_000 + digits[7] * 10_000 + digits[8] * 1000 + digits[9] * 100 + digits[10] * 10 + digits[11]) / 1_000_000
+    }
+
+    /// Who the `=== fs_usage` segment of the root helper's output says made the file system work: the ten
+    /// processes with the most change calls, then the most lines. nil when the output has no such segment.
+    /// The name is the last column, `name.tid`, and may hold spaces; the elapsed column before it is taken from the
+    /// right so a path named like one cannot move the name. A last line with no newline was cut by the cap and is
+    /// not counted. An empty name (a process that already exited) is counted as unparsed.
+    static func fsUsageWriters(_ text: String, limit: Int = 10) -> FsUsageSummary? {
+        let markerStart: String.Index
+        if text.hasPrefix("=== fs_usage") { markerStart = text.startIndex }
+        else if let found = text.range(of: "\n=== fs_usage") { markerStart = text.index(after: found.lowerBound) }
+        else { return nil }
+        guard let eol = text[markerStart...].firstIndex(of: "\n") else {
+            return FsUsageSummary(writers: [], lines: 0, unparsed: 0, span: nil, cut: false)
+        }
+        var segment = text[text.index(after: eol)...]
+        if segment.hasPrefix("=== ") { segment = segment[..<segment.startIndex] }
+        else if let next = segment.range(of: "\n=== ") { segment = segment[..<segment.index(after: next.lowerBound)] }
+        let cut = !segment.isEmpty && (segment.utf8.last != 10 || segment.utf8.count >= fsUsageCap)
+        let regex = try! NSRegularExpression(pattern: #"^.*\s\d+\.\d{6}(?: W)?\s+(.+)\.(\d+)$"#)
+
+        var counts: [String: (changes: Int, events: Int)] = [:]
+        var lines = 0, unparsed = 0
+        var first: Double?, last: Double?
+        var rest = segment
+        while let nl = rest.utf8.firstIndex(of: 10) {
+            let line = rest[..<nl]
+            rest = rest[rest.index(after: nl)...]
+            guard let seconds = stampSeconds(line) else { continue }
+            lines += 1
+            first = first ?? seconds
+            last = seconds
+            let owned = String(line).trimmingCharacters(in: .whitespaces)
+            guard let match = regex.firstMatch(in: owned, range: NSRange(location: 0, length: owned.utf16.count)),
+                  let nameRange = Range(match.range(at: 1), in: owned) else { unparsed += 1; continue }
+            let name = owned[nameRange].trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty else { unparsed += 1; continue }
+            let afterStamp = line.dropFirst(15).drop(while: { $0 == " " })
+            let call = afterStamp.prefix(while: { $0 != " " })
+            let changed = fsUsageChangeCalls.contains(String(call))
+                || (fsUsageOpenCalls.contains(String(call)) && opensForWrite(afterStamp.dropFirst(call.count)))
+            var entry = counts[name] ?? (0, 0)
+            entry.events += 1
+            if changed { entry.changes += 1 }
+            counts[name] = entry
+        }
+        // fs_usage cuts a long name to a fixed width: one process then shows under its short and its whole name.
+        for short in counts.keys where short.count >= 16 {
+            let longer = counts.keys.filter { $0 != short && $0.hasPrefix(short) }
+            guard longer.count == 1, let whole = longer.first, let entry = counts.removeValue(forKey: short) else { continue }
+            counts[whole] = (counts[whole]!.changes + entry.changes, counts[whole]!.events + entry.events)
+        }
+        let ranked = counts.filter { !fsUsageSelf.contains($0.key) }
+            .map { FsUsageWriter(name: $0.key, changes: $0.value.changes, events: $0.value.events) }
+            .sorted { ($1.changes, $1.events, $0.name) < ($0.changes, $0.events, $1.name) }
+        var span = last.map { $0 - first! }
+        if let s = span, s < 0 { span = s + 86_400 }
+        return FsUsageSummary(writers: Array(ranked.prefix(limit)), lines: lines, unparsed: unparsed, span: span, cut: cut)
+    }
+
+    /// The ranking as file text. `changes` counts attempts, failed calls included.
+    static func writersSection(_ summary: FsUsageSummary) -> String {
+        func pad(_ n: Int, _ width: Int) -> String { let s = String(n); return String(repeating: " ", count: max(0, width - s.count)) + s }
+        let window = summary.span.map { String(format: "%.2fs", $0) } ?? "n/a"
+        var text = "window=\(window) of 10s lines=\(summary.lines) unparsed=\(summary.unparsed) cut=\(summary.cut ? "yes" : "no")  changes count attempts\n"
+        text += "changes  events  name\n"
+        for writer in summary.writers {
+            text += "\(pad(writer.changes, 7))  \(pad(writer.events, 6))  \(String(keystrokeStripped(writer.name).prefix(maxNameLength)))\n"
+        }
+        return text
+    }
+
     // MARK: - the file
 
     private static func stamp(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
@@ -189,6 +315,16 @@ enum ProcessForensicsLogic {
             text += "\nprivilege=root (sample, fs_usage through the Tally evidence helper)\n"
         } else {
             text += "\nprivilege=none missing=root (sample, fs_usage need root)\n"
+        }
+        // First section, computed from the whole helper output before the clip: who made the file system work.
+        if root {
+            switch results.all[jobs.count - 1] ?? .failure(ProcessForensicsFailure(reason: "not run")) {
+            case .success(let helper):
+                text += fsUsageWriters(helper).map { section("top writers (fs_usage)", .success(writersSection($0))) }
+                    ?? section("top writers (fs_usage)", .failure(ProcessForensicsFailure(reason: "no fs_usage section in the helper output")))
+            case .failure(let failure):
+                text += section("top writers (fs_usage)", .failure(failure))
+            }
         }
         for (job, result) in zip(jobs, results.all) {
             text += section(job.0, result ?? .failure(ProcessForensicsFailure(reason: "not run")))

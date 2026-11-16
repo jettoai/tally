@@ -4,3 +4,5 @@ Tally/MenuBar/StatusItemButton.swift	StatusItemController.writeButtonSnapshot	wr
 Tally/Core/ResetHintNotifier.swift	ResetHintNotifier.runExpiryDeliveryTest	write	developer test hook, not reachable from UI
 Tally/App/WindowSnapshot.swift	WindowSnapshot.write	createDirectory	dev/demo-only window capture (-TallyWindowSnapshot), the launch quits right after, never runs in a user session
 Tally/App/WindowSnapshot.swift	WindowSnapshot.write	write	dev/demo-only window capture (-TallyWindowSnapshot), the launch quits right after, never runs in a user session
+Tally/MenuBar/PinnedStripMenu.swift	PinnedStripMenu.list	createDirectory	dev/demo-only menu listing (-TallyStripMenuCapture with -TallyWindowSnapshot), never runs in a shipped build
+Tally/MenuBar/PinnedStripMenu.swift	PinnedStripMenu.list	write	dev/demo-only menu listing (-TallyStripMenuCapture with -TallyWindowSnapshot), never runs in a shipped build

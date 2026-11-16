@@ -24,27 +24,18 @@ enum PinnedStripMenu {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem.sectionHeader(title: L("Pin style")))
         for style in PinnedStyle.allCases {
-            add(title(of: style), #selector(PinnedStripMenuTarget.pickStyle(_:)),
+            add(PinnedStylePicker.label(style), #selector(PinnedStripMenuTarget.pickStyle(_:)),
                 value: style.rawValue, on: settings.pinnedStyle == style)
         }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem.sectionHeader(title: L("Direction")))
         for axis in PinnedAxis.allCases {
-            add(axis == .vertical ? L("Vertical") : L("Horizontal"), #selector(PinnedStripMenuTarget.pickAxis(_:)),
+            add(PinnedStylePicker.label(axis), #selector(PinnedStripMenuTarget.pickAxis(_:)),
                 value: axis.rawValue, on: settings.pinnedAxis == axis)
         }
         menu.addItem(.separator())
         add(L("Open Settings…"), #selector(PinnedStripMenuTarget.openSettings), key: ",")
         return menu
-    }
-
-    /// The same three names the Display pane's cards carry (`PinnedStylePicker`).
-    private static func title(of style: PinnedStyle) -> String {
-        switch style {
-        case .rings: L("Rings only")
-        case .labeled: L("Labeled strip")
-        case .full: L("Full panel")
-        }
     }
 
     /// `-TallyStripMenuCapture YES` (demo or dev builds only): three seconds after the pinned panel

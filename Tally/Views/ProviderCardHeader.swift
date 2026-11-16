@@ -142,10 +142,10 @@ extension PopoverRootView {
     private func poolLine(_ pool: FleetPool) -> some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let refill = pool.refills.first.map { " · " + refillText($0, now: context.date, compact: true) } ?? ""
-            let unpublished = PoolWeighting(pool, unknownPlan: L("Unknown plan")).unpublishedPlans
-                .joined(separator: ", ")
             let tail = pool.weightUnknown
-                ? " · " + String(format: L("%@ allowance not published, cannot combine"), unpublished)
+                ? " · " + String(format: L("%@ allowance not published, cannot combine"),
+                                 PoolWeighting(pool, unknownPlan: L("Unknown plan")).unpublishedPlans
+                                     .joined(separator: ", "))
                 : refill
             Text(poolDisplayName(pool) + tail)
                 .font(PanelStyle.font(11.5, 400))

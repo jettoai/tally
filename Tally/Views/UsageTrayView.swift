@@ -105,26 +105,27 @@ extension PopoverRootView {
     /// One pool as a short bar, what is left in it and when the next refill lands.
     @ViewBuilder
     private func trayPool(_ summary: FleetSummary, showsRefill: Bool = true) -> some View {
-        if let pool = displayedPools(summary).first, pool.combinedAverage == nil {
-            // Plans with no published multiple cannot be pooled: no figure rather than a placeholder (B-4685).
-            Text(verbatim: "—").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-        } else if let pool = displayedPools(summary).first {
-            let remaining = pool.averageRemaining
-            let tint = MetricSeverity.fromUsedPercent(100 - remaining).color
-            HStack(spacing: 5) {
-                ZStack(alignment: .leading) {
-                    Capsule().fill(LayoutTint.track)
-                    Capsule().fill(tint).frame(width: max(2, 60 * remaining / 100))
+        if let pool = displayedPools(summary).first {
+            if let remaining = pool.combinedAverage {
+                let tint = MetricSeverity.fromUsedPercent(100 - remaining).color
+                HStack(spacing: 5) {
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(LayoutTint.track)
+                        Capsule().fill(tint).frame(width: max(2, 60 * remaining / 100))
+                    }
+                    .frame(width: 60, height: 5)
+                    Text(verbatim: "\(Int(remaining.rounded()))%")
+                        .font(.caption2.weight(.semibold).monospacedDigit()).lineLimit(1).fixedSize()
+                    if showsRefill, let refill = pool.refills.first {
+                        Text(verbatim: "↻ " + UsageFormat.countdownBody(refill.at))
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
-                .frame(width: 60, height: 5)
-                Text(verbatim: "\(Int(remaining.rounded()))%")
-                    .font(.caption2.weight(.semibold).monospacedDigit()).lineLimit(1).fixedSize()
-                if showsRefill, let refill = pool.refills.first {
-                    Text(verbatim: "↻ " + UsageFormat.countdownBody(refill.at))
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
+                .tallyTooltip(poolDisplayName(pool))
+            } else {
+                // Plans with no published multiple cannot be pooled: no figure rather than a placeholder (B-4685).
+                Text(verbatim: "—").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             }
-            .tallyTooltip(poolDisplayName(pool))
         }
     }
 

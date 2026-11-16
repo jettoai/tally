@@ -18,7 +18,8 @@ struct PinnedStylePicker: View {
         }
     }
 
-    private func label(_ style: PinnedStyle) -> String {
+    /// The names the cards and the strips' menu (`PinnedStripMenu`) both use.
+    static func label(_ style: PinnedStyle) -> String {
         switch style {
         case .rings: L("Rings only")
         case .labeled: L("Labeled strip")
@@ -26,12 +27,16 @@ struct PinnedStylePicker: View {
         }
     }
 
+    static func label(_ axis: PinnedAxis) -> String {
+        axis == .vertical ? L("Vertical") : L("Horizontal")
+    }
+
     private var directionRow: some View {
         let inactive = style == .full
         return HStack(spacing: 12) {
             Text(L("Direction")).font(.system(size: 13))
             NeutralSegmentedPicker(selection: $axis, options: PinnedAxis.allCases, size: .small) {
-                $0 == .vertical ? L("Vertical") : L("Horizontal")
+                Self.label($0)
             }
             .disabled(inactive)
             .opacity(inactive ? 0.45 : 1)
@@ -51,7 +56,7 @@ struct PinnedStylePicker: View {
                 VStack(spacing: 0) {
                     glyph(option).frame(height: 46).padding(.top, 14)
                     Spacer(minLength: 0)
-                    Text(label(option))
+                    Text(Self.label(option))
                         .font(.system(size: 13, weight: selected ? .semibold : .regular))
                         .foregroundStyle(selected ? Color.primary : Color.secondary)
                         .lineLimit(1)
@@ -63,7 +68,7 @@ struct PinnedStylePicker: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(label(option))
+        .accessibilityLabel(Self.label(option))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 

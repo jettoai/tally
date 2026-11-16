@@ -10,8 +10,7 @@ enum CodexPlan {
     /// code with underscores reads as words ("self_serve_business_prolite" -> "Self Serve Business
     /// Prolite") rather than as a raw identifier.
     static func displayName(planType raw: String?) -> String? {
-        guard let code = raw?.trimmingCharacters(in: .whitespaces).lowercased(), !code.isEmpty
-        else { return nil }
+        guard let code = key(planType: raw) else { return nil }
         switch code {
         case "prolite": return "Pro 100"
         case "pro": return "Pro 200"

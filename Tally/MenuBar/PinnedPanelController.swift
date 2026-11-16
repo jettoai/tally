@@ -6,6 +6,20 @@ import SwiftUI
 final class PinnedUsagePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// The strips' secondary click (right button, or control and the left one) opens their menu from
+    /// anywhere on the panel. Caught here, on the window, because every grab area on a strip is a
+    /// native overlay that takes the mouse before a SwiftUI context menu could see it. The full
+    /// panel keeps the events it had.
+    override func sendEvent(_ event: NSEvent) {
+        let secondary = event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+        if secondary, SettingsStore.shared.pinnedStyle != .full, let view = contentView {
+            NSMenu.popUpContextMenu(PinnedStripMenu.make(), with: event, for: view)
+            return
+        }
+        super.sendEvent(event)
+    }
 }
 
 /// Whether a panel is being carried by hand right this moment, and the moment it is set down.
@@ -307,9 +321,12 @@ final class PinnedPanelController {
         // from there, could only walk away from the tab switch). Only on the way in, not in
         // `summon(onScreenOf:)`: raising a panel already on screen must keep focus a keyboard user placed.
         panel.makeFirstResponder(nil)
+        PinnedStripMenu.showForCaptureIfAsked(in: panel)
     }
 
-    /// SUMMON THE PANEL TO THE DISPLAY THE CLICK CAME FROM, then raise it.
+    /// RAISE THE PANEL, and bring it back if it is on no display (B-4640: it no longer crosses to the
+    /// display the click came from while it is on one; the rest of this note is the 2026-08-15 design
+    /// that still decides where an orphaned panel goes).
     ///
     /// The status item is the panel's only summon while it is pinned, and raising alone was not an
     /// answer to it: on several displays the panel sat wherever it was last dropped, so a click on
@@ -328,7 +345,13 @@ final class PinnedPanelController {
     /// must keep the focus a keyboard user placed in it.
     func summon(onScreenOf anchor: CGRect?) {
         guard let panel else { return show(atTopLeft: nil) }
-        if let topLeft = StatusAnchor.summonTopLeft(panel: panel.frame, towards: anchor,
+        // B-4640: a panel standing on any display stays where the user put it and is only raised
+        // (clicking the item on another display used to carry it across, which read as the panel
+        // jumping). Only one standing on no display at all, its screen unplugged, is summoned.
+        let centre = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
+        let standsOnADisplay = NSScreen.displays.contains { $0.frame.contains(centre) }
+        if !standsOnADisplay,
+           let topLeft = StatusAnchor.summonTopLeft(panel: panel.frame, towards: anchor,
                                                     displays: NSScreen.displays) {
             panel.setFrameTopLeftPoint(topLeft)
         }

@@ -67,7 +67,10 @@ let baseline: [(String, [(String, Int)])] = [
     ("Tally/Views/NeutralSegmentedPicker.swift", [(".windowDragOrTap(", 1), (".onHover", 1), (".contentShape(", 1), ("Button {", 1), (".accessibilityLabel(", 1), (".accessibilityAddTraits(", 1), ("DragOrTapArea", 1)]),
     ("Tally/Views/PanelGrip.swift", [(".windowDragSurface()", 1), (".contentShape(", 1)]),
     ("Tally/Views/PopoverFooterView.swift", [(".tallyTooltip", 10), (".contentShape(", 6), (".popover(", 2), ("Button {", 6), (".allowsHitTesting(false)", 1)]),
-    ("Tally/Views/PinnedCompactView.swift", [(".windowDragSurface()", 2), (".onHover", 1), (".help(", 1), (".allowsHitTesting(false)", 1), ("TimelineView(", 1)]),
+    // B-4640: the labeled strip gained a hover close button (`PinnedCloseButton`, whose name is the one `Button(` hit,
+    // and an accessibility label and trait), and the rings-only strip is a new file with the same wiring shape.
+    ("Tally/Views/PinnedCompactView.swift", [(".windowDragSurface()", 5), (".animation(", 1), (".transition(", 1), (".onHover", 2), (".help(", 2), ("Button(", 1), (".accessibilityLabel(", 1), (".accessibilityAddTraits(", 1), (".allowsHitTesting(false)", 2), ("TimelineView(", 1)]),
+    ("Tally/Views/PinnedRingStrip.swift", [(".windowDragSurface()", 2), (".onHover", 2), (".help(", 1), (".allowsHitTesting(false)", 1), ("TimelineView(", 1)]),
     ("Tally/Views/PoolRingView.swift", [(".accessibilityLabel(", 1)]),
     ("Tally/Views/PanelStyle.swift", []),
     ("Tally/Views/AdvisorCard.swift", []),

@@ -64,7 +64,9 @@ enum CaptureLaunch {
         "TallyUsageLayout",     // which usage-tab layout to preview (ledger or tray), judged on screen
         // Surfaces held open so they can be photographed without synthesized input.
         "TallyPanelCapture",    // the pinned usage panel
+        "TallyPinnedDropProbe", // the pinned panel dropped at a point, then left alone for an outside sampler (Dev or demo)
         "TallyStatusMenuCapture",  // the status item's secondary-click menu
+        "TallyStripMenuCapture",  // the pinned strips' secondary-click menu (B-4640)
         "TallyPopoverCapture",  // the menu bar popover
         "TallyTab",             // which of that surface's pages it opens on (SurfaceTabLaunch)
         // The Settings window, and which pane it opens on: one flag rather than two, because the
@@ -220,6 +222,9 @@ enum CaptureLaunch {
                                // Qualifies TallyPanelCapture (Dev or demo data): the surface's view-options
                                // card is up when the launch opens, so it can be photographed without a click (B-4639).
                                "TallyViewOptionsOpen",
+                               // Qualifies TallyPanelCapture (Dev or demo data): the pinned strips draw with the
+                               // pointer over them, so the close button shows without a real hover (B-4640).
+                               "TallyPinnedHoverCapture",
                                // Qualify TallyMoveToApplicationsPreview (Debug, Dev build or demo data):
                                // where it copies to, a forced failure screen, and pressing Move by itself
                                // so the copy and relaunch run unattended.

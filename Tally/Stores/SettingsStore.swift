@@ -206,10 +206,15 @@ final class SettingsStore {
     /// `panelDensity` key an older build stored is simply never read again.
     var panelDensity: PanelDensity { .list }
 
-    /// How the pinned panel is drawn (see `PinnedStyle`). Full by default, so nobody's pinned panel
-    /// changes until they pick a strip.
+    /// How the pinned panel is drawn (see `PinnedStyle`) and which way a strip runs. Full by default,
+    /// so nobody's pinned panel changes until they pick a strip. Stored under `pinnedForm` and
+    /// `pinnedAxis`; the single `pinnedStyle` key older builds wrote is read once (see `init`) and
+    /// then left alone, so a downgrade still finds the choice it understands.
     var pinnedStyle: PinnedStyle {
-        didSet { UserDefaults.standard.set(pinnedStyle.rawValue, forKey: "pinnedStyle") }
+        didSet { UserDefaults.standard.set(pinnedStyle.rawValue, forKey: "pinnedForm") }
+    }
+    var pinnedAxis: PinnedAxis {
+        didSet { UserDefaults.standard.set(pinnedAxis.rawValue, forKey: "pinnedAxis") }
     }
 
     var isPanelTranslucent: Bool {
@@ -282,7 +287,14 @@ final class SettingsStore {
         defaults.set(hostAlerts, forKey: HostHealthLogic.alertEnabledKey)
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
-        pinnedStyle = PinnedStyle(rawValue: defaults.string(forKey: "pinnedStyle") ?? "") ?? .full
+        let pin = PinnedStyle.resolve(form: defaults.string(forKey: "pinnedForm"),
+                                      axis: defaults.string(forKey: "pinnedAxis"),
+                                      legacy: defaults.string(forKey: "pinnedStyle"))
+        pinnedStyle = pin.0
+        pinnedAxis = pin.1
+        // Property observers do not run in init: write the migrated choice once so the next launch reads the new keys.
+        defaults.set(pin.0.rawValue, forKey: "pinnedForm")
+        defaults.set(pin.1.rawValue, forKey: "pinnedAxis")
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         groupByProvider = defaults.object(forKey: "groupByProvider") as? Bool ?? true
         defaults.removeObject(forKey: "gaugeFocus")  // retired picker: the panel always shows the weekly total

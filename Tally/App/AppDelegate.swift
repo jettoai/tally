@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UsagePing.start()   // anonymous install count; nothing unless the Settings switch is on
         statusItemController.showMenuForCaptureIfAsked()   // after start(): the menu reads it
         statusItemController.showPopoverForCaptureIfAsked()
+        PinnedDropProbe.runIfAsked()   // dev only: drops the pinned panel, an outside sampler watches it
         // Whatever was on screen at the last quit comes back: an update relaunch is just
         // quit + launch, and losing the window you were reading mid-update is disorienting.
         // (The pinned panel restores itself inside install(); the transient popover is always

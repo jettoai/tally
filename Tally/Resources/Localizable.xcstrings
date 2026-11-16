@@ -22851,107 +22851,352 @@
         }
       }
     },
-    "Full": {
+    "Rings only": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "完整"
+            "value": "純圓環"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "完整"
+            "value": "纯圆环"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フル"
+            "value": "リングのみ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전체"
+            "value": "링만"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tam görünüm"
+            "value": "Yalnızca halkalar"
           }
         }
       }
     },
-    "Compact row": {
+    "Labeled strip": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "精簡橫排"
+            "value": "有字窄條"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "精简横排"
+            "value": "有字窄条"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンパクト（横）"
+            "value": "ラベル付きストリップ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴팩트 가로"
+            "value": "라벨 스트립"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kompakt satır"
+            "value": "Etiketli şerit"
           }
         }
       }
     },
-    "Compact column": {
+    "Full panel": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "精簡直排"
+            "value": "完整面板"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "精简竖排"
+            "value": "完整面板"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンパクト（縦）"
+            "value": "フルパネル"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴팩트 세로"
+            "value": "전체 패널"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kompakt sütun"
+            "value": "Tam panel"
+          }
+        }
+      }
+    },
+    "Direction": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방향"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yön"
+          }
+        }
+      }
+    },
+    "Vertical": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直排"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "竖排"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縦"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dikey"
+          }
+        }
+      }
+    },
+    "Horizontal": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "橫排"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横排"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가로"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yatay"
+          }
+        }
+      }
+    },
+    "Applies to both strips.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "純圓環與有字窄條都適用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纯圆环与有字窄条都适用"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方のストリップに適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 스트립 모두에 적용"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her iki şerit için geçerlidir."
+          }
+        }
+      }
+    },
+    "The full panel has no direction.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整面板沒有方向"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整面板没有方向"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルパネルには方向がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 패널에는 방향이 없습니다"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam panelin yönü yoktur."
+          }
+        }
+      }
+    },
+    "Pin style": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釘法"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "钉法"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定スタイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 방식"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sabitleme biçimi"
+          }
+        }
+      }
+    },
+    "Open Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟設定…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开设置…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を開く…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 열기…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayarları aç…"
           }
         }
       }

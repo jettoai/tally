@@ -63,7 +63,19 @@ extension StatusItemController {
     }
 
     func showMenu(from button: NSStatusBarButton) {
+        makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    private func makeMenu() -> NSMenu {
         let menu = NSMenu()
+        // A pinned panel has no menu of its own to close it from when it is a strip, and the status
+        // item is where its owner is already looking.
+        if SettingsStore.shared.isUsagePanelPinned {
+            let unpin = NSMenuItem(title: L("Unpin window"), action: #selector(unpinFromMenu), keyEquivalent: "")
+            unpin.target = self
+            menu.addItem(unpin)
+            menu.addItem(.separator())
+        }
         let open = NSMenuItem(title: String(localized: "Open Tally", bundle: AppLocale.bundle),
                               action: #selector(openMainWindow), keyEquivalent: "o")
         open.target = self
@@ -87,7 +99,7 @@ extension StatusItemController {
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         menu.addItem(quit)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+        return menu
     }
 
     /// `-TallyStatusMenuCapture YES` (demo or dev builds only): pop the secondary-click menu at
@@ -101,7 +113,11 @@ extension StatusItemController {
         // Delayed: for the first moments of a launch the status item's button has no window on
         // screen, and then a strip not yet painted, so a menu popped early anchors to the wrong spot.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            if clicksCheck { self.checkForUpdates() } else { self.showMenu(from: button) }
+            if clicksCheck { return self.checkForUpdates() }
+            // Also listed to a text file when a window snapshot is running: a background launch has
+            // no menu on screen to photograph (see `PinnedStripMenu.list`).
+            PinnedStripMenu.list(self.makeMenu(), as: "status-menu")
+            self.showMenu(from: button)
         }
     }
 
@@ -118,6 +134,10 @@ extension StatusItemController {
             return
         }
         UpdaterController.shared.checkForUpdates()
+    }
+
+    @objc private func unpinFromMenu() {
+        Self.unpin()
     }
 
     @objc private func openSettings() {

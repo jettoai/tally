@@ -467,7 +467,7 @@ func runLaunchAtLoginChecks() {
     // directions are pinned, a member going missing and one appearing without anybody deciding to.
     let expectedFamily: Set<String> = [
         "TallyDemoData", "TallyAppearance", "TallyCardStyle", "TallySessionCardCap", "TallyUsageLayout",
-        "TallyPanelCapture", "TallyStatusMenuCapture", "TallyPopoverCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
+        "TallyPanelCapture", "TallyPinnedDropProbe", "TallyStatusMenuCapture", "TallyStripMenuCapture", "TallyPopoverCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
         "TallyEmptyStatePreview", "TallyWelcomePreview", "TallyMoveToApplicationsPreview",
         "TallyPanelHintPreview", "TallyCommandPreview", "TallyOverlayPreview",
         "TallyTokenGraphPreview", "TallyUpdateChip", "TallyPickPreview", "TallyLoginItemPreview",
@@ -477,7 +477,7 @@ func runLaunchAtLoginChecks() {
         "TallyHostHealthTest", "TallyCPUAlertTest", "TallySentryTestEvent",
         "TallyUpdateLagTest", "TallyClearanceIdleTest",
     ]
-    check("the family is exactly these thirty-four flags",
+    check("the family is exactly these thirty-six flags",
           Set(CaptureLaunch.backgroundKeys) == expectedFamily)
     check("and it carries no duplicates",
           CaptureLaunch.backgroundKeys.count == expectedFamily.count)
@@ -532,8 +532,8 @@ func runLaunchAtLoginChecks() {
           scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
     check("and every flag classified is spelled in the source",
           Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-    check("which comes to ninety-five, in three buckets",
-          CaptureLaunch.allFlagKeys.count == 95 && scanned.count == 95)
+    check("which comes to ninety-eight, in three buckets",
+          CaptureLaunch.allFlagKeys.count == 98 && scanned.count == 98)
     check("with nothing counted twice",
           Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
     check("a launch carrying none of them does",

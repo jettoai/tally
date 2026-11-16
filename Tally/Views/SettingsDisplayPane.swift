@@ -45,14 +45,14 @@ extension SettingsView {
         }
     }
 
-    /// Three tiles under the group's title, in no card: the compact styles are the menu-bar strip
-    /// moved onto the desktop, so this sits right after the menu bar group. The sentence under the
-    /// title is the whole explanation; the full sentence stays in its hover.
+    /// Three tiles and a direction row under the group's title, in no card: the compact styles are the
+    /// menu-bar strip moved onto the desktop, so this sits right after the menu bar group. The sentence
+    /// under the title is the whole explanation; the full sentence stays in its hover.
     private var pinnedSection: some View {
         PageSection(title: L("Pinned window"), icon: Image(systemName: "pin"),
                     note: Text(L("Show it in full or as a compact strip like the menu bar.")),
                     card: false) {
-            PinnedStylePicker(selection: $settings.pinnedStyle)
+            PinnedStylePicker(style: $settings.pinnedStyle, axis: $settings.pinnedAxis)
         }
         .tallyTooltip(L("When the panel is pinned, show it in full or as a compact strip like the menu bar."))
     }

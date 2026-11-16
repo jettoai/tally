@@ -102,6 +102,15 @@ func forensicsTests() {
         _ = F.compose(plan(name: "node"), probes: fakeProbes(own, readable: true, rootHelper: true))
         expect(own.count("privileged") == 0 && own.count("rootHelper") == 0, "T27 a process of this user never asks for root")
     }
+    do {  // T27b a helper that floods the file: the clip cuts the helper's tail, not the parts after it
+        var probes = fakeProbes(Calls(), readable: false, rootHelper: true)
+        probes.privileged = { _ in .success("ROOT-SAMPLE\n" + String(repeating: "x", count: 6 * 1024 * 1024)) }
+        let text = F.compose(plan(), probes: probes)
+        expect(text.contains("== threads (ps -M) ==") && text.contains("== writes by this account ==")
+               && text.contains("== fsevents paths (machine-wide) ==") && text.contains("ROOT-SAMPLE")
+               && text.hasSuffix("truncated=yes\n") && text.utf8.count <= F.maxFileBytes,
+               "T27b a 6 MB helper output keeps threads, writes and fsevents, ends truncated=yes")
+    }
     do {  // T22 failures still leave a file
         let calls = Calls()
         let probes = fakeProbes(calls, readable: true, fail: "timeout after 50 s")

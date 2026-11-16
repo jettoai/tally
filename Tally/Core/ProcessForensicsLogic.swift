@@ -165,7 +165,6 @@ enum ProcessForensicsLogic {
         let root = !own && probes.rootHelper()
         var queued: [(String, ProcessForensicsJob)] = []
         if own { queued.append(("sample", { probes.sample(plan.pid) })) }
-        if root { queued.append(("sample and fs_usage (root helper)", { probes.privileged(plan.pid) })) }
         queued.append(("fsevents paths (machine-wide)", { probes.fsEvents() }))
         queued.append(("writes by this account", { probes.writers() }))
         if !own {
@@ -174,6 +173,8 @@ enum ProcessForensicsLogic {
                 queued.append(("fseventsd listener registrations (last 15 min)", { probes.registrations() }))
             }
         }
+        // Last on purpose: fs_usage is machine-wide and can fill the whole 5 MB, so the clip must cut its tail, not the parts above.
+        if root { queued.append(("sample and fs_usage (root helper)", { probes.privileged(plan.pid) })) }
         let jobs = queued
         let results = ProcessForensicsResults(count: jobs.count)
         DispatchQueue.concurrentPerform(iterations: jobs.count) { results.set($0, jobs[$0].1()) }

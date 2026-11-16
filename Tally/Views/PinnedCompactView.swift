@@ -49,12 +49,12 @@ struct PinnedPanelRoot: View {
 /// and last thing in it, on all four sides of all four strips (rings or labeled, vertical or
 /// horizontal). The corner radius is that inset plus the ring's radius, which makes the strip's end
 /// concentric with the ring in it, and leaves the annulus between the two exactly `edge` wide for
-/// the close button's 9 points.
+/// the close button's 8 points.
 enum PinnedStripMetrics {
-    static let edge: CGFloat = 12
-    static let closeDiameter: CGFloat = 9
+    static let edge: CGFloat = 8
+    static let closeDiameter: CGFloat = 8
     /// Where the close button's top-left sits, so it is centred in that annulus at 45 degrees.
-    static let closeOrigin: CGFloat = 7.5
+    static let closeOrigin: CGFloat = 5
     static let waitingDotDiameter: CGFloat = 5
     static let ringsRadius = edge + 14
     static let labeledRadius = edge + 11

@@ -21,7 +21,7 @@ struct PinnedRingStrip: View {
     var hostTopEdge: () -> CGFloat? = { nil }
 
     private static let ringDiameter: CGFloat = 28
-    /// A cell is the ring alone: the badge hangs off its lower right into the gap (4 right, 3 down),
+    /// A cell is the ring alone: the badge hangs off its lower right into the gap (2 right, 2 down),
     /// so the ring stays centred in the strip and the inset is measured to the ring.
     private static let cellSize = CGSize(width: ringDiameter, height: ringDiameter)
     /// Room between neighbouring cells along the strip, per side, taken off that axis' end gaps.
@@ -151,7 +151,7 @@ private struct PinnedRingCellView: View {
     var body: some View {
         PinnedRing(cell: cell, diameter: diameter)
             .overlay(alignment: .bottomTrailing) {
-                if let badge = cell.badge { badgeView(badge).offset(x: 4, y: 3) }
+                if let badge = cell.badge { badgeView(badge).offset(x: 2, y: 2) }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .padding(vertical ? .vertical : .horizontal, along)

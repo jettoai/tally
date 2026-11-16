@@ -29,6 +29,8 @@ enum WindowSnapshot {
     /// one fixed size on every pane comes out as five different sizes, and a before/after pair of
     /// long panes comes out identical. Same gate as the flag it modifies (demo or dev only).
     static let noGrowKey = "TallyWindowSnapshotNoGrow"
+    /// `-TallyWindowBurst <seconds>`: see `burst`. Same gate as the flag it modifies.
+    static let burstKey = "TallyWindowBurst"
 
     /// How long the windows are given to finish laying out before the shutter.
     ///
@@ -47,6 +49,11 @@ enum WindowSnapshot {
         guard DemoUsage.isActive || BuildVariant.isDev,
               let dir = UserDefaults.standard.string(forKey: flagKey), !dir.isEmpty else { return }
         Task { @MainActor in
+            let seconds = UserDefaults.standard.double(forKey: burstKey)
+            if seconds > 0 {
+                return await burst(into: URL(fileURLWithPath: (dir as NSString).expandingTildeInPath),
+                                   seconds: seconds)
+            }
             try? await Task.sleep(for: .seconds(settleDelay))
             // A token or cost page on real data is still reading transcripts at this point; a
             // picture of its spinner is not the page. Bounded so a stuck scan still gets a shot.
@@ -65,6 +72,42 @@ enum WindowSnapshot {
             }
             write(into: URL(fileURLWithPath: (dir as NSString).expandingTildeInPath))
         }
+    }
+
+    /// `-TallyWindowBurst <seconds>` (with `-TallyWindowSnapshot <dir>`): instead of one picture, one
+    /// PNG of the first window that shows up every 0.15 s (`frame-0001.png`, ...) for that long, then
+    /// quit; ffmpeg turns the frames into a clip. A tick on which that window is gone (the pinned
+    /// strip after Unpin) writes a blank frame of its last size, so the clip shows it vanishing.
+    @MainActor private static func burst(into dir: URL, seconds: Double) async {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var number: Int?
+        var last: NSBitmapImageRep?
+        var n = 0
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            let window = NSApp.windows.first { number == nil ? $0.isVisible && $0.frame.width > 1
+                && CGWindowID(exactly: $0.windowNumber) != nil : $0.windowNumber == number }
+            if let window, number == nil { number = window.windowNumber }
+            var rep: NSBitmapImageRep?
+            if let window, window.isVisible, let id = CGWindowID(exactly: window.windowNumber) {
+                rep = CGWindowListCreateImage(.null, .optionIncludingWindow, id,
+                                              [.boundsIgnoreFraming, .bestResolution])
+                    .map(NSBitmapImageRep.init(cgImage:))
+                last = rep
+            } else if let last {
+                rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: last.pixelsWide,
+                                       pixelsHigh: last.pixelsHigh, bitsPerSample: 8, samplesPerPixel: 4,
+                                       hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                       bytesPerRow: 0, bitsPerPixel: 0)
+            }
+            if let data = rep?.representation(using: .png, properties: [:]) {
+                n += 1
+                try? data.write(to: dir.appendingPathComponent(String(format: "frame-%04d.png", n)))
+            }
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        FileHandle.standardError.write(Data("burst: \(n) frames in \(dir.path)\n".utf8))
+        NSApp.terminate(nil)
     }
 
     /// One PNG per window, named after the window's title (the untitled ones - the pinned panel is

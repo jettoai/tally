@@ -235,7 +235,10 @@ enum CaptureLaunch {
                                welcomeForce,
                                // Qualifies TallyWindowSnapshot (Dev build or demo data): photographs
                                // each window at the size it really has, not grown to its whole page.
-                               "TallyWindowSnapshotNoGrow"]
+                               "TallyWindowSnapshotNoGrow",
+                               // Qualifies TallyWindowSnapshot (Dev build or demo data): a run of
+                               // frames of the first window for that many seconds, for a clip.
+                               "TallyWindowBurst"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

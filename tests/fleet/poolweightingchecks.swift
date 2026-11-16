@@ -13,20 +13,20 @@ func runPoolWeightingTests() {
     let pro = seat("codex1", "Pro 200", key: "pro", used: 88)
     let team = seat("codex2", "Team", key: "team", used: 3)
 
-    // The screenshot pair: weighted, ring 19.7% left (80.3% used), unit and seats spelled out.
+    // The screenshot pair: weighted, ring 16.0% left (84.0% used), unit and seats spelled out.
     let pair = pool([pro, team])
     let weighting = PoolWeighting(pair, unknownPlan: "Unknown plan")
     expect(weighting.kind == .weighted && PoolWeighting.kind(of: pair) == .weighted,
            "B-4685 WP3 Pro 200 + Team is a weighted pool")
-    expect(PoolWeighting.ringShare(pair, used: false).map { abs($0 - 217.0 / 11) < 1e-9 } == true
-               && PoolWeighting.ringShare(pair, used: true).map { abs($0 - (100 - 217.0 / 11)) < 1e-9 } == true,
+    expect(PoolWeighting.ringShare(pair, used: false).map { abs($0 - 337.0 / 21) < 1e-9 } == true
+               && PoolWeighting.ringShare(pair, used: true).map { abs($0 - (100 - 337.0 / 21)) < 1e-9 } == true,
            "B-4685 WP3 the ring reads the combined average in either mode")
-    expect(abs(weighting.weeksLeft - 2.17) < 1e-9 && weighting.weeksTotal == 11,
-           "B-4685 WP3 the hover counts 2.17 of 11 lowest-plan weeks")
+    expect(abs(weighting.weeksLeft - 3.37) < 1e-9 && weighting.weeksTotal == 21,
+           "B-4685 WP3 the hover counts 3.37 of 21 lowest-plan weeks")
     expect(weighting.seatsText(announcedWord: "announced")
-               == "codex1 Pro 200 \u{00D7}10 announced \u{00B7} codex2 Team \u{00D7}1",
+               == "codex1 Pro 200 \u{00D7}20 announced \u{00B7} codex2 Team \u{00D7}1",
            "B-4685 WP3 seats list their multiples, the announced one marked")
-    expect(pair.members.map(\.multiple) == [10, 1]
+    expect(pair.members.map(\.multiple) == [20, 1]
                && pair.members.map(\.multipleSource) == [.announced, .detected],
            "B-4685 WP3 members carry the published multiple and how sure it is")
 

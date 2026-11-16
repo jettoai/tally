@@ -2,7 +2,7 @@ import Foundation
 
 // Plan capacity weights (PlanWeight) and the cross-plan weighted weekly remaining
 // (FleetMath.weighted). Multiples: Claude Pro 1 / Max 5 / Ultra 10; Codex Plus, Team 1 and the
-// Pro tiers prolite 5 / pro 10 / promax 25 (B-4685); a plan the table does not list has none.
+// Pro tiers prolite 10 / pro 20 / promax 50 (B-4685); a plan the table does not list has none.
 // Codex accounts carry the raw planType in `planKey`, Claude's plan name is its own key.
 func planAccount(_ id: String, provider: String, plan: String?, weeklyUsed: Double?,
                  stale: Bool = false, planKey: String? = nil) -> AccountUsage {
@@ -32,9 +32,9 @@ func runCapWeightTests() {
            "weight: Claude without a plan, Team and Enterprise have no multiple")
     expect(["plus", "team", "business", "edu"].allSatisfy { w("codex", $0)! == (1, .detected) },
            "weight: Codex plus, team, business, edu = 1 detected")
-    expect(w("codex", "prolite")! == (5, .announced) && w("codex", "pro")! == (10, .announced)
-               && w("codex", "promax")! == (25, .announced),
-           "weight: Codex Pro 100 / 200 / 500 = 5 / 10 / 25 announced")
+    expect(w("codex", "prolite")! == (10, .announced) && w("codex", "pro")! == (20, .announced)
+               && w("codex", "promax")! == (50, .announced),
+           "weight: Codex Pro 100 / 200 / 500 = 10 / 20 / 50 announced")
     expect(["free", "go", "self_serve_business_prolite", "enterprise_cbp_usage_based", "unknown",
             "enterprise", ""].allSatisfy { w("codex", $0) == nil } && w("codex", nil) == nil,
            "weight: unlisted Codex plans and no plan have no multiple (never 1)")
@@ -43,8 +43,8 @@ func runCapWeightTests() {
     let pro = planAccount("x1", provider: "codex", plan: "Pro 200", weeklyUsed: 88, planKey: "pro")
     let team = planAccount("x2", provider: "codex", plan: "Team", weeklyUsed: 3, planKey: "team")
     let brief = FleetMath.weighted(accounts: [pro, team])["codex"]
-    expect(brief == FleetWeighted(remainingPercent: 20, source: .announced),
-           "weighted: Pro 200 at 12 + Team at 97 = 19.7, published as 20, announced")
+    expect(brief == FleetWeighted(remainingPercent: 16, source: .announced),
+           "weighted: Pro 200 (x20) at 12 + Team at 97 = 337/21 = 16.0, published as 16, announced")
     let stalePro = planAccount("x1", provider: "codex", plan: "Pro 200", weeklyUsed: 88, stale: true,
                                planKey: "pro")
     expect(FleetMath.weighted(accounts: [stalePro, team])["codex"]
@@ -76,7 +76,7 @@ func runCapWeightTests() {
     let pro100 = planAccount("p3", provider: "codex", plan: "Pro 100", weeklyUsed: 50, planKey: "prolite")
     expect(FleetMath.weighted(accounts: [pro, pro100])["codex"]
                == FleetWeighted(remainingPercent: 25, source: .announced),
-           "weighted: Pro 200 at 12 (x10) + Pro 100 at 50 (x5) = 370/15 = 24.7 -> 25")
+           "weighted: Pro 200 at 12 (x20) + Pro 100 at 50 (x10) = 740/30 = 24.7 -> 25")
 
     let split = FleetMath.summaries(accounts: [pro, team], now: now, byPlan: true) { $0.id }
     expect(split.map { FleetMath.planName(of: $0, accounts: [pro, team]) } == ["Pro 200", "Team"],

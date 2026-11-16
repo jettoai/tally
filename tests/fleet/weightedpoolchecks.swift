@@ -19,20 +19,20 @@ func runWeightedPoolTests() {
 
     // The screenshot pair (A1-A3, A6).
     let pair = pooled([pro, team])
-    expect(pair.map { abs($0.averageRemaining - 217.0 / 11) < 1e-9 } == true
-               && pair.map { abs($0.averageRemaining - 19.7) < 0.05 } == true,
-           "B-4685 Pro 200 at 12 + Team at 97 = 19.7% left, not 54.5%")
-    expect(pair?.totalRemaining == 217 && pair?.capacity == 1100 && pair?.totalWeight == 11,
-           "B-4685 the pair holds 217 of 1100 units")
-    expect(pair?.members.map(\.weight) == [10, 1] && pair?.weightUnknown == false
+    expect(pair.map { abs($0.averageRemaining - 337.0 / 21) < 1e-9 } == true
+               && pair.map { abs($0.averageRemaining - 16.0) < 0.05 } == true,
+           "B-4685 Pro 200 (x20) at 12 + Team at 97 = 337/21 = 16.0% left, not 54.5%")
+    expect(pair?.totalRemaining == 337 && pair?.capacity == 2100 && pair?.totalWeight == 21,
+           "B-4685 the pair holds 337 of 2100 units")
+    expect(pair?.members.map(\.weight) == [20, 1] && pair?.weightUnknown == false
                && pair?.combinedAverage == pair?.averageRemaining,
            "B-4685 members carry their multiples and the pool is weighed")
     let refill = pair?.refills.first
-    expect(refill?.accountLabel == "codex1" && refill?.gain == 880 && refill?.ownGain == 88
-               && refill?.poolWeight == 11 && refill?.poolShare == 80 && refill?.poolShareText == "80%"
-               && refill?.gainText == "88%",
-           "B-4685 Pro 200's reset refills +80% of the pool (88% of its own window)")
-    expect(pair.map { abs($0.steadyRefillPerHour(windowHours: 168) - 1100.0 / 168) < 1e-12 } == true,
+    expect(refill?.accountLabel == "codex1" && refill?.gain == 1760 && refill?.ownGain == 88
+               && refill?.poolWeight == 21 && refill?.poolShare == 1760.0 / 21
+               && refill?.poolShareText == "83.8%" && refill?.gainText == "88%",
+           "B-4685 Pro 200's reset refills +83.8% of the pool (1760/21; 88% of its own window)")
+    expect(pair.map { abs($0.steadyRefillPerHour(windowHours: 168) - 2100.0 / 168) < 1e-12 } == true,
            "B-4685 steady refill speed follows the weighted capacity")
     expect(pair?.minAccountLabel == "codex1" && pair?.minRemaining == 12,
            "B-4685 the tightest account still compares each account's own percent")
@@ -77,10 +77,10 @@ func runWeightedPoolTests() {
 
     // Split by plan: each tier's pool is one plan, and its multiple rides on the summary (snapshot).
     let split = FleetMath.summaries(accounts: [pro, team], now: now, byPlan: true) { $0.accountLabel }
-    expect(split.map { FleetMath.planWeight(of: $0, accounts: [pro, team])?.value } == [10, 1]
+    expect(split.map { FleetMath.planWeight(of: $0, accounts: [pro, team])?.value } == [20, 1]
                && split.first.flatMap { FleetMath.planWeight(of: $0, accounts: [pro, team])?.source }
                == .announced,
-           "B-4685 a split summary's multiple is its plan's (Pro 200 = 10 announced, Team = 1)")
+           "B-4685 a split summary's multiple is its plan's (Pro 200 = 20 announced, Team = 1)")
     expect(FleetMath.summaries(accounts: [pro, team], now: now) { $0.accountLabel }
                .first.flatMap { FleetMath.planWeight(of: $0, accounts: [pro, team]) } == nil,
            "B-4685 a summary spanning plans has no single multiple")
@@ -88,11 +88,11 @@ func runWeightedPoolTests() {
     // The hover (A6).
     let summary = FleetMath.summaries(accounts: [pro, team], now: now) { $0.accountLabel }
     let model = summary.first.flatMap { FleetTooltip.model($0, displayed: $0.pools) }
-    expect(model?.unitsRemaining == 217 && model?.capacity == 1100 && model?.weightUnknown == false
+    expect(model?.unitsRemaining == 337 && model?.capacity == 2100 && model?.weightUnknown == false
                && model?.poolAccountCount == 2,
-           "B-4685 hover: 217 of 1100 units, 2 accounts")
+           "B-4685 hover: 337 of 2100 units, 2 accounts")
 
-    // Burn rate (A4/A5): Pro 200 spends 10 points, Team 10 points -> 110 units, not 20.
+    // Burn rate (A4/A5): Pro 200 spends 10 points, Team 10 points -> 210 units, not 20.
     func rows(_ account: String, from: Double, to: Double) -> [UsageHistory.Sample] {
         [sample(account, provider: "codex", tsHoursAgo: 10, used: from),
          sample(account, provider: "codex", tsHoursAgo: 0, used: to)]
@@ -100,8 +100,8 @@ func runWeightedPoolTests() {
     let samples = rows("codex1", from: 50, to: 60) + rows("codex2", from: 5, to: 15)
     let lookup = FleetMath.weightLookup(accounts: [pro, team])
     let weighted = FleetForecast.weeklyRates(samples: samples, now: now, poolWeights: lookup)
-    expect(weighted["codex|weeklyAll"].map { abs($0.perHour - 11) < 1e-9 } == true,
-           "B-4685 pace: 10 pts of Pro 200 + 10 pts of Team = 110 units / 10h")
+    expect(weighted["codex|weeklyAll"].map { abs($0.perHour - 21) < 1e-9 } == true,
+           "B-4685 pace: 10 pts of Pro 200 (x20) + 10 pts of Team = 210 units / 10h")
     let plain = FleetForecast.weeklyRates(samples: samples, now: now)
     expect(plain["codex|weeklyAll"].map { abs($0.perHour - 2) < 1e-9 } == true,
            "B-4685 pace without weights is the old unweighted sum")
@@ -128,10 +128,10 @@ func runWeightedPoolTests() {
            "B-4685 pace: one plan on every account paces exactly as before")
 
     // Samples cover only the heavy plan (the light plan sat unchanged for the whole lookback): the
-    // pool is still weighed by its full membership, so Pro 200's 10 points are 100 units / 10h.
+    // pool is still weighed by its full membership, so Pro 200's 10 points are 200 units / 10h.
     let heavyOnly = FleetForecast.weeklyRates(samples: rows("codex1", from: 40, to: 50), now: now,
                                               poolWeights: lookup)
-    expect(heavyOnly["codex|weeklyAll"].map { abs($0.perHour - 10) < 1e-9 } == true,
+    expect(heavyOnly["codex|weeklyAll"].map { abs($0.perHour - 20) < 1e-9 } == true,
            "B-4685 pace: a heavy plan with samples next to a light plan with none is still weighted")
 
     // Unknown weights are neither published nor notified (UsageStore cannot compile standalone, so
@@ -141,11 +141,11 @@ func runWeightedPoolTests() {
     expect(publishing.components(separatedBy: "!pool.weightUnknown").count == 3,
            "B-4685 the snapshot and the dry-pool notifier both skip a weightUnknown pool")
 
-    // Dryness: 217 units, 11 units an hour, the Pro 200 reset refilling 880 in 6.5h.
+    // Dryness: 337 units, 21 units an hour, the Pro 200 reset refilling 1760 in 6.5h.
     if let pair {
         let dry = FleetForecast.depletion(
             remaining: pair.totalRemaining, refills: pair.refills.map { ($0.at, $0.gain) },
-            perHour: 11, steadyRefillPerHour: pair.steadyRefillPerHour(windowHours: 168), now: now)
+            perHour: 21, steadyRefillPerHour: pair.steadyRefillPerHour(windowHours: 168), now: now)
         expect(dry == nil || dry! > now.addingTimeInterval(6.5 * 3_600),
                "B-4685 the weighted refill carries the pool past the Pro 200 reset")
     }

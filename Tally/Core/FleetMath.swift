@@ -8,7 +8,7 @@ import Foundation
 /// Percentages pool with equal weights inside a plan: one account's full window is 100 units, so a
 /// five-account pool holds 500 units ("5 accounts' worth"). A pool whose accounts sit on different
 /// plans weighs every member by its plan's multiple of the vendor's lowest paid plan (`PlanWeight`),
-/// so the unit becomes one lowest-plan account's window ("Plus weeks"): a Pro 200 account counts ten
+/// so the unit becomes one lowest-plan account's window ("Plus weeks"): a Pro 200 account counts twenty
 /// of them. Vendors publish those multiples for overall usage, not per window, so applying them to
 /// the weekly window is an assumption. A mixed pool with a plan whose multiple is not published
 /// carries `weightUnknown` and no combined figure, never a weight of 1. Pools of ONE plan (or of
@@ -360,9 +360,11 @@ enum FleetMath {
 ///    every week" (Ultra). Official.
 ///  - Codex Plus/Team/Business/Edu: developers.openai.com/codex/pricing lists Business standard
 ///    seats and non-flexible Enterprise/Edu seats at Plus's allowance. Official.
-///  - Codex Pro 100 / 200 / 500 (`prolite` / `pro` / `promax`): the 5x, 10x (since 2026-10-30,
-///    down from 20x) and 25x multiples OpenAI announced for them, as reported by the press; the
-///    help-center pages are not readable here. Announced, less sure.
+///  - Codex Pro 100 / 200 / 500 (`prolite` / `pro` / `promax`): 10x, 20x and 50x, worked out from
+///    the OpenAI help center "ChatGPT release notes" entry of 2026-10-29 (Pro 100 and Pro 500 now
+///    include twice their previous allowance; the Pro 200 reduction is cancelled) and the DevDay
+///    2026 recap (Pro 500 is 25x Plus before the doubling). OpenAI states no final multiple, so
+///    these are announced, less sure.
 ///  The vendors publish the multiples for overall usage, so applying them to the weekly window is
 ///  an assumption.
 enum PlanWeight {
@@ -401,9 +403,9 @@ enum PlanWeight {
         // Business (formerly Team) and non-flexible Edu carry the same Codex allowance as Plus.
         case ("codex", "plus"), ("codex", "team"), ("codex", "business"), ("codex", "edu"):
             return (1, .detected)
-        case ("codex", "prolite"): return (5, .announced)
-        case ("codex", "pro"): return (10, .announced)
-        case ("codex", "promax"): return (25, .announced)
+        case ("codex", "prolite"): return (10, .announced)
+        case ("codex", "pro"): return (20, .announced)
+        case ("codex", "promax"): return (50, .announced)
         default: return nil
         }
     }

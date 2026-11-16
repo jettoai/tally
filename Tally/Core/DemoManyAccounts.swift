@@ -73,7 +73,7 @@ extension DemoUsage {
 
     /// `-TallyDemoCodexPair YES` (Debug builds only): Codex shows only the B-4685 pair, Pro 200 at
     /// 12% left (88% used) (resets in 6.5 hours) beside Team at 97% left (resets in 6 days), whose plan-weighted
-    /// pool reads 20%. `-TallyDemoCodexPair unpublished` swaps the Team seat for Business Premium,
+    /// pool reads 16%. `-TallyDemoCodexPair unpublished` swaps the Team seat for Business Premium,
     /// a plan with no published multiple, so the pool cannot be combined. Every other provider's
     /// fixtures stay as they are; without the flag nothing here does anything.
     static func applyingCodexPair(_ fixtures: [AccountUsage], now: Date) -> [AccountUsage] {

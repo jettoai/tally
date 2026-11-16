@@ -76,7 +76,7 @@ struct PoolWeighting: Equatable {
         "\u{00D7}" + (value == value.rounded() ? "\(Int(value))" : String(format: "%.1f", value))
     }
 
-    /// "codex1 Pro 200 x10 announced, codex2 Team x1", the seats and their multiples in pool order.
+    /// "codex1 Pro 200 x20 announced, codex2 Team x1", the seats and their multiples in pool order.
     /// `announcedWord` follows the multiple of a seat whose figure is the vendor's announcement.
     func seatsText(announcedWord: String) -> String {
         seats.map { seat in

@@ -1,60 +1,47 @@
+<p align="right"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <b>简体中文</b> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
+
 <p align="center">
-  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="120" alt="Tally app icon"></a>
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="96" alt="Tally app icon"></a>
 </p>
 <h1 align="center">Tally</h1>
 
-<p align="center"><b>为同时用着不止一个 AI 订阅的人打造。</b></p>
+<h3 align="center">你付费的每个 Claude 与 Codex 订阅，一眼看尽。</h3>
 
-<h3 align="center">你付费的每一个 Claude 与 Codex 订阅，在菜单栏一眼看尽。<br>每个新会话都从余量最多的账号开始。</h3>
-
-<p align="center">
-Tally 是免费、开源的 macOS 菜单栏 app，把你 Mac 上每个 Claude（Pro、Max）与 OpenAI Codex 账号的 5 小时、每周与旗舰模型用量上限并排显示，并让每个新的 Claude Code 或 Codex 会话从余量最多的账号开始。它通过官方的 <code>claude</code> 与 <code>codex</code> CLI 读取用量：只读，仅用于你自己付费的订阅。
-</p>
+<p align="center">免费开源的 macOS 菜单栏 app。把每个账号的 5 小时、每周与旗舰模型额度上限并排显示，并让每个新会话从余量最多的账号开始。<br>只读，仅用于你自己付费的订阅。</p>
 
 <p align="center">
   <a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><img alt="下载 macOS 版" src="assets/download-macos.svg" width="300"></a>
+  <br><sub><a href="#安装">其他安装方式</a> · <a href="https://github.com/jettoai/tally/releases">版本说明</a></sub>
 </p>
 
 <p align="center">
   <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=release&color=22c55e"></a>
-  <img alt="Native SwiftUI" src="https://img.shields.io/badge/SwiftUI-Native-f97316?style=flat-square&logo=swift&logoColor=white">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-0ea5e9?style=flat-square">
   <img alt="Read-only" src="https://img.shields.io/badge/usage_reads-read--only-6366f1?style=flat-square">
 </p>
 
-<p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <b>简体中文</b> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
-
 <p align="center">
-  <img src="assets/screenshot-list.png" alt="Tally 仪表盘（演示数据）：九个账号（五个 Claude Max、四个 Codex）在精简列表密度下、两栏并排：每个账号一行，带 provider 标记、账号名称与方案，接着每个额度窗都是一条附百分比的小 bar，登录失效的账号有警告三角形，有额度重置存量的 Codex 行显示存量数字，启动器当前选择的账号有紫色智选标记，每行末尾是圆形选取钮与拖拽把手；上方是每家的账号池（按当前速度能撑多久的预测）与顾问行" width="900">
+  <img src="assets/screenshot-list.png" alt="Tally 仪表盘（演示数据）：九个账号（五个 Claude Max、四个 Codex）在精简列表密度下、两栏并排：每个账号一行，带 provider 标记、账号名称与方案，接着每个额度窗都是一条附百分比的小 bar，登录失效的账号有警告三角形，有额度重置存量的 Codex 行显示存量数字，启动器当前选择的账号有紫色智选标记，每行末尾是圆形选取钮与拖拽把手；上方是每家的账号池（按当前速度能撑多久的预测）与顾问行" width="830">
 </p>
 
-https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
+## 一眼看尽每个账号
 
-<p align="center"><sub>30 秒带你看一遍 Tally。</sub></p>
-
-<p align="center"><sub>免费开源 · 由 <a href="https://jetto.ai">Jetto</a> 打造 · 一款 macOS 菜单栏 AI 用量监控工具，盯住 Claude 与 Codex 的额度限制</sub></p>
-
-## 为什么是 Tally
-
-如果你付费用着两个 Claude Max 席位外加一个 Codex 方案，一整天都在问同一个问题：「哪个账号还有余量？」Tally 一次回答所有账号，然后照着答案行动。
-
-### 1. 每个账号，并排呈现
-
-每个 Claude 与 Codex 登录各占一行，带有自己的 5 小时、每周与旗舰模型额度窗；账号池再把它们合并成一份预算，并照你的节奏预测什么时候用光（「约 4d 10h 后用光」）。菜单栏不用打开任何东西就显示同样的池：每个 provider（或每种方案）一段，会话在上、每周在下，角落有个小标记写明它合计了几个账号，或是哪种方案。想把账号分开看，可在设置里切换成一账号一个标记。
+每个 Claude 与 Codex 登录各占一行，带有自己的 5 小时、每周与旗舰模型额度窗；账号池再把同一家的账号合并成一份预算，并照你的节奏预测什么时候用光（「约 4d 10h 后用光」）。菜单栏不用打开任何东西就显示同样的池：每个 provider（或每种方案）一段，会话在上、每周在下。
 
 <p align="center">
   <img src="assets/screenshot-menubar.png" alt="Tally 菜单栏条的默认合并布局：五个 Claude 账号合成一段，Codex 的 Pro 与 Team 方案各一段，每段都把合并后的会话百分比叠在合并后的每周百分比之上" width="160">
 </p>
 
-### 2. 每个会话都落在余量最多的账号上
+## 每个新会话都从余量最多的账号开始
 
-`tally claude`（或 `tally codex`）会把每个新会话启动在当下额度撑得最久的账号上，同时考量重置时间与剩余百分比。账号在对话中途撞到上限时，Tally 会在次佳账号上续跑*同一段对话*；每次 `/clear` 都是一次免费的搬家机会；快见底的账号会在用着它的每个会话里打上一行提醒。你或 AI 智能体也可以从外部用 `tally session clear` 清空某个会话，新的空白窗口会直接开在余量最多的账号上。
+`tally claude`（或 `tally codex`）会对照剩余额度与重置时间来挑账号。账号撞到上限时，Tally 会在下一个账号上续跑*同一段对话*；每次 `/clear` 都是一次免费的搬家机会。你或 AI 智能体也可以从外部用 `tally session clear` 清空某个会话，新的空白窗口会直接开在余量最多的账号上。
 
 ```sh
-tally claude          # starts on the best account right now
+tally claude          # 现在就从最佳账号启动
+tally codex           # Codex 同样适用
 ```
 
-### 3. 所有运行中的会话，在同一块看板上
+## 所有会话在同一块看板上
 
 Tally 启动的每一段对话都会成为一张卡片：账号、模型、context 大小，以及它在工作中、空闲，还是**卡住等你回复**。有会话在请求权限时，菜单栏的红点会告诉你；每张卡片也显示该会话占了机器多少资源（CPU、内存、占住的端口）。这些数字直接从 macOS 内核读取，不另外启动 `ps` 或 `top` 进程。
 
@@ -62,23 +49,9 @@ Tally 启动的每一段对话都会成为一张卡片：账号、模型、conte
   <img src="assets/screenshot-sessions.png" alt="Tally 的会话看板（演示数据）：八张卡片，每张对应一段受监督的对话，各自写着项目、账号、模型与 effort、context 大小、最近一次动作与端口；其中一张以红框标示为卡住，摘要行统计工作中、卡住、空闲与未回报的会话数，每张卡底部列出该会话的进程、CPU 与内存" width="834">
 </p>
 
-### 4. 看清 Token 花到哪里去了
+https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
 
-“成本”分页的 Token 页按今天、7 天、30 天或全部区间汇总输入、缓存与输出 Token，按 provider 与项目拆分，每个项目还附上一整年的每日活动。数据读自 CLI 自己的本地 transcript，永远不离开你的 Mac。
-
-<p align="center">
-  <img src="assets/screenshot-cost-tokens.png" alt="“成本”分页的 Token 页：所选区间的 Token 总计，附输入、缓存写入、缓存读取与输出分项，Claude 与 Codex 的拆分，以及项目表，其中一个项目展开成一整年的每日活动热力图" width="720">
-</p>
-
-花费页（分页默认打开的那页）把这些 Token 换算成金额：按 Anthropic 牌价计算每个项目的 Claude 用量，总额再拆成输入、缓存写入、缓存读取与输出。Codex 的 Token 会计入，但没有换算金额，因为 Tally 没有一份可信的 Codex 价目表。运行 `tally cost --json` 就能让脚本拿到同一份数字。
-
-<p align="center">
-  <img src="assets/screenshot-cost-spend.png" alt="“成本”分页的花费页：所选区间的总花费与 subagent 占比，花费拆成输入、缓存写入、缓存读取与输出，以及项目表，列出每个项目的花费、占比、Token 数、每百万 Token 花费与相对上一期的变化" width="720">
-</p>
-
-### 5. 只读，只用于你自己付费的订阅
-
-用量通过各家自己的官方 CLI 读取（`claude -p "/usage"` 与 `codex app-server`）。Tally 从不代理、共享或转售访问权，从不记录或发送任何 token，并以单一原生 Swift app 运行，没有 Electron，读取对话记录的核心用 Rust 编写。[它读取什么，以及它写入的少数几样东西](#工作原理以及它绝不做的事)。
+<p align="center"><sub>30 秒带你看一遍 Tally。</sub></p>
 
 ## 安装
 
@@ -105,216 +78,37 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
 
 或直接[下载 DMG](https://github.com/jettoai/tally/releases/latest/download/Tally.dmg)，把 **Tally.app** 拖进「应用程序」后启动。它已通过公证，并在应用内自动更新。接着在**设置 → 集成 → 全部安装**一键加上 `tally` CLI、status line 信号与 Claude Code skill。[更多安装方式](#安装选项)。
 
-## 即将推出：Tally Pro 算力池
+## 钉住面板
 
-这台 Mac 在跑测试套件的时候，你的其他 Mac 与 Linux 主机正闲着。Tally Pro 会自动把重活（完整测试套件、release 构建、训练任务）送到你自己的其他机器上，再把输出流式传回，让你正在打字的这台 Mac 保持流畅。
+把仪表盘钉成始终置顶的毛玻璃面板，标题栏拖到哪都行。账号卡片会以玻璃质感呈现在面板背景之上。
+
+## 看清 Token 花到哪里去了
+
+每个项目的 Token 与牌价花费，数据读自 CLI 自己的本地 transcript。没有任何东西离开你的 Mac，`tally cost --json` 把同一份数字交给你的脚本。
 
 <p align="center">
-  <img src="assets/pro-compute-pool.svg" alt="示意图：在你的 Mac 上启动的重活被送到算力池里你自己的另一台机器（Mac Studio 跑 release 构建、带 GPU 的 Linux 主机跑训练、闲置的 MacBook 跑测试套件），输出再流式传回" width="760">
+  <img src="assets/screenshot-cost-tokens.png" alt="“成本”分页的 Token 页：所选区间的 Token 总计，附输入、缓存写入、缓存读取与输出分项，Claude 与 Codex 的拆分，以及项目表，其中一个项目展开成一整年的每日活动热力图" width="720">
 </p>
 
-<p align="center"><sub>Watch 这个 repo，上线时第一时间收到通知。</sub></p>
+<details>
+<summary>花费页</summary>
 
-## 功能
+花费页（分页默认打开的那页）把这些 Token 换算成金额：按 Anthropic 牌价计算每个项目的 Claude 用量，总额再拆成输入、缓存写入、缓存读取与输出。Codex 的 Token 会计入，但没有换算金额，因为 Tally 没有一份可信的 Codex 价目表。运行 `tally cost --json` 就能让脚本拿到同一份数字。
 
-### 仪表盘
+<p align="center">
+  <img src="assets/screenshot-cost-spend.png" alt="“成本”分页的花费页：所选区间的总花费与 subagent 占比，花费拆成输入、缓存写入、缓存读取与输出，以及项目表，列出每个项目的花费、占比、Token 数、每百万 Token 花费与相对上一期的变化" width="720">
+</p>
 
-- **多账号优先。** 每个 `~/.claude*` 登录与 Codex 安装各自一张卡，N 个账号并排呈现，
-  不是单账号 fallback。卡片可拖拽排序，顺序应用到所有界面。
-- **账号池。** 每个 provider 的账号合并成一条量表：连续 bar 代表合并后的每周预算，总量
-  用账号份数表达（「剩 2.9/5」），加上下一次错开回充。预测会依你近期实测的节奏估算这个
-  池子还能撑多久，并把每次重置补回的额度算进去：超支时显示「约 4d 10h 后用光」，没超支时
-  显示「照目前速度不会用光 ✓」。
-- **用量顾问。** 需要再多开一个账号吗？仪表下方每个 provider 各一行：每个你拥有的账号
-  对应一个实心圆点，实测节奏要求再开一个时显示空心圆点，并标出可直接读出的每周实际需求
-  数字（「5.8 acct/wk」）。横跨两种方案的舰队会按方案分开显示（「Pro 1.7・Team 0.9」），
-  因为一个 200 美元方案账号周和一个 20 美元方案账号周不是同一种量，合并计算只会产生一个
-  对不上任何订阅方案的数字。鼠标悬停可看按方案拆分的明细、当前燃烧速率、断粮时数与下一批
-  回充；`tally status --json` 会用 `tierDemands` 发布同一份拆分。
-- **菜单栏条。** 默认每个提供商一段，把该提供商的账号合计成账号池画的同一个池，徽章标示
-  这一段代表几个账号；想把账号分开看，可切换成一账号一个标记。两种模式都是会话叠在每周
-  之上，鼠标悬停会列出账号、完整数字，以及没进池的账号是谁。
-- **可固定的毛玻璃面板。** 把仪表固定成永远置顶的毛玻璃窗口，拖拽标题栏放到任何位置。账号
-  卡片本身也会在面板背景之上以玻璃质感呈现（你关掉半透明、或系统要求降低透明度时，改为
-  不透明）。
-- **卡片，或每账号一行。** 账号超过六个左右，卡片格线就会撑爆屏幕，所以面板还有第二种
-  密度：每个账号一行，识别信息在左侧，每个额度窗都画成一条小 bar 加数字，启动控制缩成
-  图标。它藏起来的是文字、不是信息，所以窗名称、重置时间与每个控制项的作用都移进 hover
-  提示（Tally 自己画在面板的玻璃上，不等系统 tooltip）。每种密度各自记住自己的栏数，列表
-  密度的「自动」固定一栏，额度条拉长填满整行。
-- **版面随你安排，一次一张卡。** 页脚的查看选项卡用版面图块设定密度与栏数（每个图块直接
-  画出它产生的版面）、开关账号池与用量顾问，把 provider 收折到自己的仪表下面，也能开启
-  「按服务分组」让卡片各自落在所属 provider 的区块里，区块内同样可拖拽排序。收折的
-  provider 会留着标题，这也是它回来的办法。舰队高过屏幕时会改成滚动，而不是掉出画面外。
-- **Token 用量，按项目拆分。** 每个界面的“成本”分页里都有一页 Token：今天／7 天／
-  30 天／全部区间的 Token 总计，附输入、缓存与输出分项、按 provider 的拆分，以及一张项目表，
-  连 agent 与 workflow 的会话都会追溯回它服务的项目。点一行项目，就会展开成一整年的
-  每日活动，一张按该项目自身量级分级、贡献记录风格的热力图，每天的总计只要鼠标悬停就能
-  看到。数据读自 CLI 自己的本地 transcript，经增量缓存汇总（没有新数据时刷新远低于
-  一秒），而且永远不离开你的电脑。同一分页默认的“花费”页按 Anthropic 牌价把这些 Token 换算成
-  各项目的金额，附输入／缓存写入／缓存读取／输出的花费组成；`tally cost --json` 把同一份
-  数字交给脚本。
-- **每个窗口自己的重置时间。** 点任何重置文字，全部在「2d 4h 后重置」与「07/18 20:00 重置」
-  之间切换。
-- **登录状态一目了然。** 鼠标悬停在卡片上就能看到该账号登录的 email。已退出登录的账号会显示
-  红色标签并发送通知；需要 `/login` 的会话会有独立提醒，可直接打开该会话。
-  如果能获取 Claude 登录期限，Tally 会在到期前三天内及到期后提醒。点击更新登录后，由服务的
-  官方 CLI 在后台执行登录，配合浏览器授权（可见的终端窗口是备用方案）；
-  这个登录流程不会由 Tally 直接修改凭证。
-- **不用离开 app 就能添加账号。** 设置会先备好下一个账号的配置目录，默认提供共享主账号的配置
-  （一套配置服务所有账号）并附上白话的隐私说明，接着跑同一套安静登录；浏览器把结果交回来时，
-  新卡片就会出现。已经有的账号也能事后加入同一套共享配置（`tally share`，或设置里的那一行）：
-  对话、inbox 与记忆笔记会并进主账号，什么都不删（挡路的东西会被改名、留在原地），那一行
-  也白话写明共享的意思：从此每个账号都读得到每个账号的对话。
-- **Codex 额度重置存量，看得见也能兑换。** 累积的额度重置会直接显示在卡片上（「3 枚额度重置
-  可兑换」），让你在撞墙前就知道自己还有几条退路。点一下就能兑换一枚，兑换前会弹出确认
-  窗口，指名账号、列清楚成本，并在兑换多半会浪费时给出警告；最快到期的额度优先花。账号的每周额度
-  用完时，Tally 也能自动兑换最快到期的那一枚并通知你（设置里的开关，默认开启）。
+</details>
 
+## 只读，只用于你自己付费的订阅
 
-### 会话看板
+- 用量通过官方 `claude` 与 `codex` CLI 读取（`claude -p "/usage"` 与 `codex app-server`），所以没有 session key 或浏览器 cookie 需要交出去。
+- Tally 从不代理、共享或转售访问权，也从不记录或发送任何 token。
+- 单一原生 Swift app，没有 Electron；读取对话记录的核心用 Rust 编写。
 
-- **每一段对话，都在同一块看板上。** 标题栏切换的第三个位置，就排在「用量」与「成本」
-  旁边：每一段受监督的会话各一张卡片，写明它是什么（账号、模型、effort、跑在哪个
-  worktree）、现在正在做什么，以及对话已经长到多大（「142k context」）。四种状态由会话
-  自己的 supervisor 发布，而不是从外面猜：工作中、卡住、空闲，以及没有足够新的回报时诚实
-  写出的「未回报」。点一张卡片，Tally 就把那个会话的终端带到最前面。我们建议搭配 Ghostty
-  使用（Tally 就是围绕它打造的）：跳转靠会话自己的 tty，精准落在那个标签页上；其他终端
-  目前只会把整个 app 带到前台，更多终端的标签页级跳转在待开发清单上。
-- **卡住就是它在等你。** 唯一需要人介入的状态：Claude Code 弹出权限请求、提问或计划确认
-  而没人回答时，卡片会亮起红边、开始计时等待，鼠标悬停直接写明它要什么（「Claude needs
-  your permission to use Bash」）。摘要行统计整块看板的工作中／卡住／空闲／未回报，而且
-  只有「卡住」那个数字会上色，也只有它大于零时才上色。
-- **面板关着也看得到红点。** 只要有任何会话在等你，菜单栏条就会长出一个小红点，一个都不剩
-  时立刻收掉；鼠标悬停会说有几个。
-- **每段会话占了机器多少。** 每张卡片保留该会话下面整棵进程树最近十五分钟的记录：CPU、
-  内存与进程数各一条 sparkline，附当前数字与这段期间的峰值，并指名吃得最凶的那个
-  （「(bun)」、「(Google Chrome Helper)」），加上它派出了几个 subagent、占住哪些 port
-  （就是你下一次 `pnpm dev` 会撞到的那些），以及写入磁盘的速度。警示看的是「对不对得上」
-  而不是「大不大」：build 到一半的会话吃掉 300% 的核心就只是在 build，同样的燃烧发生在
-  回合结束二十秒后就是残留，会拿到一个琥珀色注记；吃掉机器大半内存的会话会拿到红色注记，
-  而内存要有两个证人（进程树自己的数字，加上内核回报的压力值）Tally 才敢这样说。任何读数
-  都要持续好几秒才会变成警示，所以一次 GC 停顿永远不会闪红。用量仪表读的是额度，读不到每个
-  运行中的会话占了机器多少。
-- **一块你学得会的看板。** 按状态排序只在看板打开的那一刻决定座位，之后就定在那里（一块
-  每秒重排两次的看板，没有人学得会）；拖动任何一张卡，顺序就变成你的。筛选可以只看已连接
-  的会话、也可以全部显示，未回报的会变暗但仍然点得动；看板还记住自己的栏数，与仪表盘的
-  分开算。
-
-### 启动控制平面
-
-- **智选。** 新会话一律启动在「当下燃烧速率最高」的账号上：用剩余百分比除以距重置的
-  时间，横跨 5 小时、每周、旗舰模型三个额度窗计算。快要重置的额度优先烧（放着不用就蒸发）；
-  得撑好几天的额度会被留着；设有迟滞机制，避免噪音级别的差异让你在账号间跳来跳去。面板徽章
-  标出当前选择，理由写在 tooltip 里。
-- **每个 provider 三种模式。** 智选（每次启动都由算法决定）、手动（卡片上的圆圈可以
-  固定一个账号；点勾选就会释放回智选，实时生效，连正在跑的会话也适用）、关闭
-  （纯仪表盘，不介入启动）。
-- **会话中途接管。** 撞到用量上限时，tally 在余量最好的下一个账号上续跑*同一段对话*
-  （内置 10 分钟 3 次熔断，可用 `--no-handoff` 或 `TALLY_AUTO_HANDOFF=0` 关闭）。若服务器
-  悄悄把你的模型降级，会优先切到仍能提供原模型的兄弟账号接管对话，只有在没人能提供时，
-  才会套用你设置的 fallback 配对。不紧急的切换会等到回合之间的空档再做。
-- **窗口边界是免费的搬家机会。** 你敲下 `/clear` 的那一刻，对话是空的：没有回合会被打断、
-  没有 context 要重载、没有东西可以损失。所以 Tally 会在那一刻再问一次账号的问题，改成
-  一件工作问一次、而不是一次启动问一次，并在当前这个账号快见底时，把全新的窗口搬到余量
-  最多的账号上。触发依据是事实、不是猜测：Claude Code 自己的 status line 会回报新的对话
-  id，所以被提示吞掉的 `/clear` 不会搬动任何东西。
-- **提前开窗。** 5 小时窗要等你发出东西才开始计时，所以一天的第一次重置会落在你坐下之后
-  五小时，而每一次停顿都把下一次往后推。只要某个 Claude 账号的窗是关着的，Tally 就通过
-  官方 CLI 发一条短消息把它打开，并固定在最便宜的模型上，让时钟在你睡觉时也在走、重置落在
-  你一天里更早的时间。每个账号每 5 小时最多一条，已经在工作的账号不会被打扰，另有可选的
-  安静时段让它整夜不出声。它从不碰任何凭证，第一条消息发出前会先告诉你一次，设置行则记着
-  这一天诚实的账：有几个账号开了窗、几个是刻意跳过的、几个开不起来。
-- **快用完的账号会自己说出来。** 当一个账号的瓶颈额度窗掉到 15% 以下，Tally 会在它下面
-  每个会话的输入框打上一行，指名是哪个窗卡住、什么时候回充、有几个会话在分它，以及哪个
-  兄弟账号还有余量：「收个尾换账号，或者等它重置。」若所有账号都没有余裕，它就诚实地这样
-  讲。要回到 30% 才会重新上膛，所以在门槛上下徘徊的账号只会讲一次；而快要重置的窗算作满
-  的，因为为了一份马上就要回充的额度把你叫停，是在跟你作对。
-- **叫一个正在跑的会话做事。** `tally type claude "<文字>" --project <项目名>` 会把一行送到
-  那个地址指名的确切受监督终端，不会使用前台窗口。`type` 后面那个字说明要找的是哪一种会话，
-  所以同一个 checkout 里并存一个 Claude、一个 Codex 时，光靠 provider 就定得到地址；指到另一种
-  的会被拒绝，不会照打进去。`--project` 除了路径，也接受裸项目名（启动目录的最后一段）；人已经
-  在那个目录里时可以整个省略。同一个目录里同一种会话有两个时，会列出两个 pid 拒绝送出，不用
-  猜的。`tally session send "<文字>" --session <pid>` 是同一个 send，改以 `tally status --json`
-  列出的 supervisor 或 child PID 定址。Claude 保留既有的 send 与 clear 行为。
-  Codex 会话只有在 Tally 已取得可信的原生绑定、验证对应
-  终端，并观察到原生回合完成后，才会声明 `send`。Codex 只接受非空白的一般 prompt，不接受
-  slash command、shell mode 或单独的 Return。它在工作中、被阻挡、状态未知、要求权限，或有人可能正在输入
-  时会排队，15 分钟后到期。终端安静却有无法解释的输入时会立即拒绝：请在该 Codex 会话输入真正
-  的 prompt，等它完成后再重试，单纯清掉 composer 无法建立安全边界。只有 Codex 发出相符的新
-  用户消息才算送达确认。终端已写入但未确认时会标示 `unconfirmed-input`，不会自动重送，包含自定义
-  Enter 键映射。仅供监看的 Codex 会话须先结束，再用 `tally codex resume <UUID>` 恢复。当它只指定一个
-  确切 UUID、没有明确 prompt、已安装 Tally status hook，且由 Tally 通过私有 TTY 启动时，Tally 会提交一条
-  可见的原生初始化 prompt，不需要人工 bootstrap prompt。它会用掉一个 model turn 和订阅额度，不会自动重试，也不保证零工具执行，因为
-  prompt 指令不是强制机制。调用端提供的 prompt 与所有其他 resume 形式都保持原样。启动期间的人为输入
-  仍会保留为 draft-held。这条路径仍须有可信的原生绑定、确切终端、完成的原生回合与相符 receipt，Codex
-  才会声明 `send`，不会跳过原生信任。请求上限为 200 UTF-8 bytes，已处理或拒绝的结果会记录在本机
-  `~/.tally/logs/input.log`。`tally session clear` 仍是 Claude 专用的独立控制，可将清空的会话改开到较健康的账号。
-  `tally message claude "<文字>" --project <项目名>` 则是把一条原生消息送进那段对话，全程不碰键盘；
-  它答不了 dialog，而且两个命令都不是收讫回执。
-- **平行的工作线。** `tally claude -w <名称>` 会在 git worktree 里开会话，需要时创建
-  `../<repo>-<名称>`、把项目的 Claude 记忆连过去，并执行该 repo 自己的 setup 脚本；只打
-  `-w` 会列出既有的工作线让你挑。`tally worktree tree / list / root / remove` 负责照看
-  它们，`remove` 会干净地收掉一条已合并的线：结束该线的所有会话、移除 worktree 与分支，
-  除非你另外交代，否则 transcript 一律保留。
-- **把一段对话，或一个 repo，固定住。** `tally account <名称>` 会在当前回合结束时，把你
-  执行它的那个会话搬到另一个账号、对话原封不动，并一直留在那里，直到 `tally account
-  --auto` 放开它。`tally model <模型> [effort]` 让这一段对话终生跑在那个模型上，撑过每一次
-  重启（额度接管、重载、app 更新），这是 Claude Code 自己的 `/model` 在 supervisor 从自己
-  的命令行重启之后给不了的保证。`tally project set --model <m> [--account <n>]` 声明这个
-  repo（以及它的每一个 worktree）启动时用什么；app 的默认值会让位给它，而你自己打的标志
-  又赢过它。在 Claude Code 里面，随附的 `/tally` 命令可以切换账号或模型而不用唤醒模型，
-  `/tally-account` ／ `/tally-model` 不带参数则会叫出 app 自己画的原生选择面板：一份列表、
-  点一下，答案就回到 CLI。
-- **配置改一次，所有会话重载。** `tally reload` 会让每个受监督的会话在下一个安静时刻重新
-  启动，于是改过的 hook、skill 或 CLAUDE.md 不必你逐个终端走一遍，就能送到每一个开着的
-  窗口。对话会留着（重启走的是与额度接管同一条 resume 路径），正在流式输出或正在被打字
-  的会话不会被动到，而反正都要重启的会话，也顺便从快见底的账号上搬走。
-  在某个会话里运行 `tally reload --self`（你或它的 agent 都行），只会重启那一个会话：
-  在当前这一轮结束后，模型与账号都不变。
-- **启动默认值，就在设置里。** 默认权限模式、启动模式（continue 或 new）、模型与 reasoning
-  effort 绑成一组，另外还有一组独立的 fallback 配对（fallback 模型＋自己的 effort＋额外
-  标志）。只在你没自己打标志时才会注入：你自己给的参数始终优先。
-- **模型改一次，所有 session 跟着换。** 把默认模型或 effort 指到别处，每个运行中的受监督
-  session 都会在下一个安静时刻跟进、接续同一段对话；不用逐个 terminal 打 `/model`。
-  你自己输入的模型或 effort 永远不会被碰，`--no-follow` 可让单个 session 退出跟随。
-- **Shell 集成。** 一键安装 PATH shim，让连裸的 `claude` / `codex` 命令都遵循你的启动策略；
-  一键移除，干净不留痕迹。
-- **Status line 集成。** Claude Code 的 status line 会多一个紫色 ✦ Tally 信号（代表这个
-  会话跑在 Tally 之下）、当前使用的账号名称，以及这个会话正在跑的模型与 effort；选择开启
-  完整额度线后，整条额度线会用 app 同款色板呈现：进度条、百分比与重置倒计时，涵盖 5 小时窗
-  与这个账号的每周预算，并跟随面板的「已用量／剩余」切换。合并后的账号池视图留在 app 与
-  `tally status`，那里才有空间好好呈现。
-  你原本自定义的 status line 会原封不动继续运行、只是后面多接一段信号；移除时逐字节还原成
-  原样，就算你不卸载直接删掉 Tally 也照常运行。
-- **Claude Code skill。** 一键把一个小 skill 放进每个 Claude 账号的 skills 文件夹，让 agent
-  会话学会从 `tally status --json` 回答额度问题、挑选账号（也会在重度多 agent 工作开跑前
-  先确认瓶颈额度窗）；移除时同样干净不留痕迹。同一次安装还会加上 `/tally` 命令，并注册
-  原生选择面板背后的 MCP server。
-- **`tally` CLI。** 启动：`tally claude [参数…]`、`tally claude --account <名称>`、
-  `tally claude -w <名称>`（worktree）、`tally resume`（把当前目录最新的一段对话搬到另一个
-  账号）、`tally add <provider>`（再登录一个账号：自动挑下一个空编号、配置目录也帮你建好；
-  主账号那一套配置，CLAUDE.md/AGENTS.md、skills、hooks、agents、设置与对话记录，默认就会
-  用符号链接接进来，一套配置服务所有账号，加 `--no-share` 可退出）、`tally share`（把你
-  已经有的账号放上同一套配置）。查看：`tally status`（加上 `--json` 会输出版本化的机器
-  可读报告：每个账号的额度窗与重置时间、现在启动会落在哪个账号，以及每个受监督的会话
-  正在跑什么，可直接喂给你自己的脚本、hook 与 agent skill）、`tally worktree tree|list|root`、
-  `tally best-dir <provider>`。操控：`tally account`、`tally model`、`tally project`、
-  `tally type|message <claude|codex>`、`tally session send|clear`、`tally reload`。维护：`tally update`、`tally completion zsh`、
-  `tally worktree remove`。全部对脚本友好。
-
-- **Harness 工具。** 在设置 > 集成 > Harness，一次安装或移除两边的
-  Tally harness skill 与离线信箱提醒。之后可请任一助手适配当前项目或用户设置的
-  harness。安装工具本身不会变更项目规则，原生 hook 信任需另行确认。
-  详见 [harness 指南](docs/harness.md)。
-
-### 外观与细节
-
-- **五种语言。** English、繁體中文、简体中文、日本語、한국어，应用内实时切换。
-- **原生。** Swift 6 + SwiftUI + AppKit，没有 Electron。唯一的第三方依赖是
-  [Sparkle](https://sparkle-project.org)（macOS 标准更新框架），应用和 CLI 各一个二进制。
-
-## 工作原理（以及它绝不做的事）
+<details>
+<summary>工作原理（以及它绝不做的事）：每一次读取与少数几项具名写入</summary>
 
 - **通过官方 CLI 获取用量。** 用量通过各家**官方 CLI** 读取（`claude -p "/usage"` 与
   `codex app-server`），由官方客户端向厂商验证身份并管理凭证。账号检测会检查登录属性。
@@ -356,6 +150,108 @@ curl -fsSLO https://github.com/jettoai/tally/releases/latest/download/Tally.dmg 
   - `tally session send <text> --session <pid>` 会把一行文字输入该会话并按下 Return；
     `tally message claude|codex <text> --session <pid>` 则把消息交给该会话自己的传输通道，
     不按任何键。
+
+</details>
+
+## 功能
+
+每项功能的一行索引；完整说明在 [docs/features.zh-CN.md](docs/features.zh-CN.md)。
+
+| 在哪里 | 你会得到什么 |
+|---|---|
+| [仪表盘](docs/features.zh-CN.md#仪表盘) | 账号池与预测、用量顾问、菜单栏条、可钉住的毛玻璃面板、卡片与列表密度、按项目的 Token 用量、重置时间、登录状态、Codex 额度重置存量 |
+| [会话看板](docs/features.zh-CN.md#会话看板) | 每段对话一张卡片、卡住状态、红点、每个会话的 CPU 与内存 |
+| [启动控制平面](docs/features.zh-CN.md#启动控制平面) | 智选、撞上限接管、`/clear` 时搬家、提前开窗、`tally type`、worktree、重载，以及 `tally` CLI（含 `tally status --json`）、status line、Claude Code skill、shell shim 与 harness 工具 |
+| [外观与细节](docs/features.zh-CN.md#外观与细节) | 六种 app 语言、原生 Swift、只有一个第三方依赖 |
+
+## 即将推出：Tally Pro 算力池
+
+这台 Mac 在跑测试套件的时候，你的其他 Mac 与 Linux 主机正闲着。Tally Pro 会自动把重活（完整测试套件、release 构建、训练任务）送到你自己的其他机器上，再把输出流式传回，让你正在打字的这台 Mac 保持流畅。
+
+<p align="center">
+  <img src="assets/pro-compute-pool.svg" alt="示意图：在你的 Mac 上启动的重活被送到算力池里你自己的另一台机器（Mac Studio 跑 release 构建、带 GPU 的 Linux 主机跑训练、闲置的 MacBook 跑测试套件），输出再流式传回" width="760">
+</p>
+
+<p align="center"><sub>Watch 这个 repo，上线时第一时间收到通知。</sub></p>
+
+## 常见问题
+
+<details>
+<summary>怎么在 macOS 菜单栏同时看多个 Claude Max 账号的额度？</summary>
+
+让每个账号各自登录 Claude Code，各用自己的配置目录（例如
+`CLAUDE_CONFIG_DIR=~/.claude2 claude`，再登录）。Tally 会找出每一个 `~/.claude*` 登录与每一个
+Codex 安装，每个账号各占一行显示 5 小时、每周与旗舰模型窗口，并把同一家的账号合成一个余量池
+显示在菜单栏。
+
+</details>
+
+<details>
+<summary>Tally 是 proxy 或账号共享工具吗？</summary>
+
+不是。Tally 不介入 Claude Code 与 Anthropic 之间，也不代理、不共享、不转售任何访问权限。它通过官方
+CLI 读取每个账号的用量，`tally claude` 则用余量最多那个账号的配置目录启动官方 CLI。每个账号
+都是你自己付费订阅、跑在你自己的 Mac 上。
+
+</details>
+
+<details>
+<summary>Tally 和 ccusage 或其他用量工具有什么不同？</summary>
+
+[ccusage](https://github.com/ryoppippi/ccusage) 这类工具是终端 CLI，从本地 log 估算 token
+花费。Tally 是原生菜单栏 app，显示厂商实际强制的额度窗口（5 小时、每周、旗舰模型），
+一次覆盖每个 Claude 与 Codex 账号，还附带一个依据这些数字行动的启动器。Token 视图也把「我到底烧了多少、烧在哪」这题一并覆盖，按项目拆分，直接读
+本地 transcript，不做金额猜测。而会话看板又比 ccusage 与其他用量仪表都再深一层：每一段运行中的会话都是一张
+卡片，谁卡住在等你、每一段又占了机器多少资源，细到是哪个进程占着内存。只读，仅用于你自己
+付费的订阅。
+
+</details>
+
+<details>
+<summary>Tally 和 CodexBar、Claude Usage Tracker、Usage4Claude 有什么不同？</summary>
+
+截至 2026 年 10 月，它们都是原生菜单栏仪表，其中几个现在也能显示多个账号。Tally 多做的是：
+只通过官方 `claude` 与 `codex` CLI 读取用量，所以不需要提供 session key 或浏览器 cookie；
+把每一家的账号合成一个余量池，并预测按你当前的速度何时用完；`tally claude` 依剩余额度与重置
+时间为每个新会话选账号，某个账号撞到上限时，在下一个账号上续跑同一段对话。CodexBar 覆盖
+更多服务（Cursor、Copilot、Gemini 等），如果你是用同一个账号跨多个 AI 工具，它可能更适合你。
+
+</details>
+
+<details>
+<summary>Tally 如何访问 Keychain？</summary>
+
+用量通过官方 CLI 获取，账号检测只检查属性。Claude 登录期限的读取程序也会读取凭证文件，
+但如果预先检查发现 Keychain 已锁定，或无法确认读取程序受信任，就会跳过访问，期限保持未知。
+检查与读取之间 Keychain 状态仍可能改变，因此仍有可能出现授权窗口。
+登录仍交由官方 CLI 执行，Tally 的登录流程不会直接修改凭证。
+
+</details>
+
+<details>
+<summary>所有账号都满了会怎样？</summary>
+
+不会有戏剧性后果：仪表如实显示，`tally claude` 警告后直接裸启动官方 CLI，
+自动接管则原地不动、不会空转循环。
+
+</details>
+
+<details>
+<summary>自动接管会弄丢我的对话吗？</summary>
+
+不会：它在下一个账号上续跑同一份会话记录（只新增、原始记录永不被修改）。
+被中断的工具调用可能会在切换后重跑一次。
+
+</details>
+
+<details>
+<summary>status line 集成会破坏我自定义的 status line 吗？</summary>
+
+不会。你自己的命令会照原样继续运行，喂进同一份 session JSON；Tally 只是在后面加一段
+信号，如果你已经显示账号名称就会跳过那部分，移除时逐字节还原成原本的注册，就算
+tally 这个二进制哪天消失了，也会直接回退到运行你原本的命令。
+
+</details>
 
 ## 要求
 
@@ -414,7 +310,7 @@ alias cc='tally claude --continue'
 
 ## 本地化
 
-Tally 内置 English、繁體中文、简体中文、日本語、한국어，设置页实时切换、免重启。
+Tally 内置 English、繁體中文、简体中文、日本語、한국어与 Türkçe，设置页实时切换、免重启。
 所有字符串集中在单一 Xcode String Catalog
 （[`Tally/Resources/Localizable.xcstrings`](Tally/Resources/Localizable.xcstrings)），
 新增语言就是「多填一列」的单文件 PR。标准是「读起来像操作系统原生文案、不像翻译」；
@@ -425,56 +321,9 @@ Tally 内置 English、繁體中文、简体中文、日本語、한국어，设
 欢迎 issue 与 pull request。开发环境照上方「从源码构建」，另有两条让项目保持健康的惯例：
 
 - `project.yml` 是唯一事实来源；`Tally.xcodeproj` 由 XcodeGen 生成、永不手改。
-- 新增用户可见字符串一律走 `L("…")` helper 进 String Catalog，五种语言一次填齐。
+- 新增用户可见字符串一律走 `L("…")` helper 进 String Catalog，六种语言一次填齐。
 
 每个 PR 保持单一意图，并把「为什么」写进描述。
-
-## 常见问题
-
-**怎么在 macOS 菜单栏同时看多个 Claude Max 账号的额度？**
-让每个账号各自登录 Claude Code，各用自己的配置目录（例如
-`CLAUDE_CONFIG_DIR=~/.claude2 claude`，再登录）。Tally 会找出每一个 `~/.claude*` 登录与每一个
-Codex 安装，每个账号各占一行显示 5 小时、每周与旗舰模型窗口，并把同一家的账号合成一个余量池
-显示在菜单栏。
-
-**Tally 是 proxy 或账号共享工具吗？**
-不是。Tally 不介入 Claude Code 与 Anthropic 之间，也不代理、不共享、不转售任何访问权限。它通过官方
-CLI 读取每个账号的用量，`tally claude` 则用余量最多那个账号的配置目录启动官方 CLI。每个账号
-都是你自己付费订阅、跑在你自己的 Mac 上。
-
-**Tally 和 ccusage 或其他用量工具有什么不同？**
-[ccusage](https://github.com/ryoppippi/ccusage) 这类工具是终端 CLI，从本地 log 估算 token
-花费。Tally 是原生菜单栏 app，显示厂商实际强制的额度窗口（5 小时、每周、旗舰模型），
-一次覆盖每个 Claude 与 Codex 账号，还附带一个依据这些数字行动的启动器。Token 视图也把「我到底烧了多少、烧在哪」这题一并覆盖，按项目拆分，直接读
-本地 transcript，不做金额猜测。而会话看板又比 ccusage 与其他用量仪表都再深一层：每一段运行中的会话都是一张
-卡片，谁卡住在等你、每一段又占了机器多少资源，细到是哪个进程占着内存。只读，仅用于你自己
-付费的订阅。
-
-**Tally 和 CodexBar、Claude Usage Tracker、Usage4Claude 有什么不同？**
-截至 2026 年 10 月，它们都是原生菜单栏仪表，其中几个现在也能显示多个账号。Tally 多做的是：
-只通过官方 `claude` 与 `codex` CLI 读取用量，所以不需要提供 session key 或浏览器 cookie；
-把每一家的账号合成一个余量池，并预测按你当前的速度何时用完；`tally claude` 依剩余额度与重置
-时间为每个新会话选账号，某个账号撞到上限时，在下一个账号上续跑同一段对话。CodexBar 覆盖
-更多服务（Cursor、Copilot、Gemini 等），如果你是用同一个账号跨多个 AI 工具，它可能更适合你。
-
-**Tally 如何访问 Keychain？**
-用量通过官方 CLI 获取，账号检测只检查属性。Claude 登录期限的读取程序也会读取凭证文件，
-但如果预先检查发现 Keychain 已锁定，或无法确认读取程序受信任，就会跳过访问，期限保持未知。
-检查与读取之间 Keychain 状态仍可能改变，因此仍有可能出现授权窗口。
-登录仍交由官方 CLI 执行，Tally 的登录流程不会直接修改凭证。
-
-**所有账号都满了会怎样？**
-不会有戏剧性后果：仪表如实显示，`tally claude` 警告后直接裸启动官方 CLI，
-自动接管则原地不动、不会空转循环。
-
-**自动接管会弄丢我的对话吗？**
-不会：它在下一个账号上续跑同一份会话记录（只新增、原始记录永不被修改）。
-被中断的工具调用可能会在切换后重跑一次。
-
-**status line 集成会破坏我自定义的 status line 吗？**
-不会。你自己的命令会照原样继续运行，喂进同一份 session JSON；Tally 只是在后面加一段
-信号，如果你已经显示账号名称就会跳过那部分，移除时逐字节还原成原本的注册，就算
-tally 这个二进制哪天消失了，也会直接回退到运行你原本的命令。
 
 ## 致谢
 
@@ -490,3 +339,5 @@ Tally 走在几个优秀项目开出的路上：
 ## 许可证
 
 [MIT](LICENSE) © [jetto](https://jetto.ai)
+
+<p align="center"><sub>免费开源 · 由 <a href="https://jetto.ai">Jetto</a> 打造 · 一款 macOS 菜单栏 AI 用量监控工具，盯住 Claude 与 Codex 的额度限制</sub></p>

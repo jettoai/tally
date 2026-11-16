@@ -49,10 +49,6 @@ Tally 启动的每一段对话都会成为一张卡片：账号、模型、conte
   <img src="assets/screenshot-sessions.png" alt="Tally 的会话看板（演示数据）：八张卡片，每张对应一段受监督的对话，各自写着项目、账号、模型与 effort、context 大小、最近一次动作与端口；其中一张以红框标示为卡住，摘要行统计工作中、卡住、空闲与未回报的会话数，每张卡底部列出该会话的进程、CPU 与内存" width="452">
 </p>
 
-https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
-
-<p align="center"><sub>30 秒带你看一遍 Tally。</sub></p>
-
 ## 安装
 
 把下面这段话贴给你的 AI，它会自己装好 Tally 并跑出结果：

@@ -49,10 +49,6 @@ Tally 啟動的每段對話都會變成一張卡片：帳號、模型、context 
   <img src="assets/screenshot-sessions.png" alt="Tally 的 session 看板（示範資料）：八張卡片，每段受監督的對話一張，各自寫著專案、帳號、模型與 effort、context 大小、最近活動與 port；其中一張以紅框標示為卡住，摘要列統計工作中、卡住、閒置與未回報的 session，每張卡片底部讀出該 session 的行程數、CPU 與記憶體" width="452">
 </p>
 
-https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
-
-<p align="center"><sub>30 秒看懂 Tally。</sub></p>
-
 ## 安裝
 
 把這段話貼給你的 AI，它會自己裝好 Tally 並跑出結果：

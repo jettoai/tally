@@ -49,10 +49,6 @@ Tally가 띄운 대화는 저마다 카드가 됩니다: 계정, 모델, 컨텍�
   <img src="assets/screenshot-sessions.png" alt="데모 데이터로 표시한 Tally 세션 보드: 감독 중인 대화마다 한 장씩 여덟 장의 카드가 있고, 각 카드에는 프로젝트, 계정, 모델과 추론 강도, 컨텍스트 크기, 마지막 활동, 포트가 적혀 있습니다. 카드 하나는 막힌 상태라 빨간 테두리로 표시되고, 요약 줄은 작업 중, 막힘, 대기, 보고 없음 세션 수를 세며, 각 카드 하단 줄은 그 세션의 프로세스, CPU, 메모리를 읽습니다" width="452">
 </p>
 
-https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
-
-<p align="center"><sub>30초 만에 둘러보는 Tally.</sub></p>
-
 ## 설치
 
 아래 내용을 AI 에이전트에게 붙여 넣으세요. Tally를 설치하고 결과까지 보여 줍니다.

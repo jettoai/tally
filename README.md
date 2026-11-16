@@ -49,10 +49,6 @@ Every conversation Tally launched becomes a card with its account, model and con
   <img src="assets/screenshot-sessions.png" alt="Tally's session board on demo data: eight cards, one per supervised conversation, each with its project, account, model and effort, context size, last activity and ports; one card is outlined in red as blocked, a summary line counts working, blocked, idle and not reporting sessions, and each card's footer reads the session's processes, CPU and memory" width="452">
 </p>
 
-https://github.com/user-attachments/assets/75a92cf0-4724-4ffd-bd2b-8db5e10ba8dd
-
-<p align="center"><sub>A 30-second tour of Tally.</sub></p>
-
 ## Install
 
 Paste this to your AI agent. It installs Tally and shows you the result:

@@ -35,6 +35,11 @@ enum ErrorReporting {
         let build = info["CFBundleVersion"] as? String ?? "0"
         // Every caller runs on main (launch, the Settings switch); off main the tag reads "unknown".
         let mainPort = Thread.isMainThread ? pthread_mach_thread_np(pthread_self()) : nil
+        // A launch that exists to be looked at holds a surface open on purpose: the capture flags pop
+        // a menu from inside a main-queue block (`PinnedStripMenu.showForCaptureIfAsked`), and its
+        // tracking loop keeps the main queue from draining until the process is killed. Every such
+        // hang is the capture itself (Sentry TALLY-7S), so those launches report no hangs at all.
+        let capturing = !CaptureLaunch.activeKeys().isEmpty
         SentrySDK.start { options in
             options.dsn = dsn
             options.sendDefaultPii = false
@@ -46,7 +51,7 @@ enum ErrorReporting {
             #endif
             options.tracesSampleRate = 0
             options.enableAutoSessionTracking = false
-            options.enableAppHangTracking = true
+            options.enableAppHangTracking = !capturing
             options.enableCaptureFailedRequests = false
             options.maxBreadcrumbs = 0
             options.beforeSend = { event in

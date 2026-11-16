@@ -52,8 +52,35 @@ enum PinnedStripMenu {
             if unpins { return menu.performActionForItem(at: 0) }
             let top = view.isFlipped ? 24 : view.bounds.height - 24
             list(menu, as: "strip-menu")
+            photographWhenOpen(as: "strip-menu-open")
             menu.popUp(positioning: nil, at: NSPoint(x: 24, y: top), in: view)
         }
+    }
+
+    /// `popUp` blocks the main queue in the menu's tracking loop, so the shutter is a timer on the
+    /// `.common` run-loop modes (the tracking mode is one of them): one second after the menu is up,
+    /// the menu's own window is photographed (a process always captures its own windows, no Screen
+    /// Recording grant, see `WindowSnapshot`) into `-TallyWindowSnapshot <dir>`, plus a text list of
+    /// the windows this process has, for the day the menu window is not where it was found.
+    private static func photographWhenOpen(as name: String) {
+        guard let dir = UserDefaults.standard.string(forKey: WindowSnapshot.flagKey), !dir.isEmpty else { return }
+        let url = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+        let timer = Timer(timeInterval: 1, repeats: false) { _ in
+            // The menu's window is not in `NSApp.windows`; the window server lists it under this pid.
+            let info = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+                .filter { ($0[kCGWindowOwnerPID as String] as? Int32) == ProcessInfo.processInfo.processIdentifier }
+            let listing = info.map { "\($0)" }.joined(separator: "\n")
+            DispatchQueue.global().async {
+                try? listing.write(to: url.appendingPathComponent("\(name)-windows.txt"), atomically: true, encoding: .utf8)
+            }
+            let menuWindow = info.filter { ($0[kCGWindowLayer as String] as? Int ?? 0) > 3 }
+                .max { ($0[kCGWindowLayer as String] as? Int ?? 0) < ($1[kCGWindowLayer as String] as? Int ?? 0) }
+            guard let id = menuWindow?[kCGWindowNumber as String] as? CGWindowID,
+                  let image = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]),
+                  let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+            DispatchQueue.global().async { try? data.write(to: url.appendingPathComponent("\(name).png")) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     /// A text listing of a menu's rows (a check mark on the ones that carry one) written next to the

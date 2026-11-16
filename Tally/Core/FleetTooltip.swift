@@ -43,6 +43,11 @@ enum FleetTooltip {
         let unitsRemaining: Double
         /// How many accounts that pool spans (the denominator of "1.4/4").
         let poolAccountCount: Int
+        /// That pool's size in the same units (`FleetPool.capacity`): `poolAccountCount x 100` for a
+        /// pool of one plan, the weighted total when plans mix.
+        let capacity: Double
+        /// The pool mixes plans with an unpublished multiple (`FleetPool.weightUnknown`).
+        let weightUnknown: Bool
         let tightest: Tightest?
         let nextRefill: FleetPool.Refill?
     }
@@ -62,6 +67,8 @@ enum FleetTooltip {
             poolModelName: leading.modelName,
             unitsRemaining: leading.totalRemaining,
             poolAccountCount: leading.members.count,
+            capacity: leading.capacity,
+            weightUnknown: leading.weightUnknown,
             tightest: tightest(summary.pools),
             // The leading pool's own next refill, not the fleet's soonest: this line sits under a
             // capacity figure for THAT pool, and a refill belonging to a different window would read

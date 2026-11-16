@@ -287,7 +287,7 @@ extension PopoverRootView {
     /// doesn't repaint the fleet.
     private func pooledBar(_ pool: FleetPool) -> some View {
         let mode = settings.displayMode
-        let capacity = Double(pool.members.count) * 100
+        let capacity = pool.capacity
         let severity = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining)
         let shown = mode == .used ? capacity - pool.totalRemaining : pool.totalRemaining
         return GeometryReader { geo in

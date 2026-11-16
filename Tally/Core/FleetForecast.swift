@@ -36,12 +36,21 @@ enum FleetForecast {
     /// account whose window did not roll over in between (`resetAt` unchanged); a rollover resets
     /// `used` downward and contributes nothing. `planOf` maps a sample's account id to its plan
     /// key when the gauge splits that provider by plan (`FleetMath.planTiers`).
+    ///
+    /// `poolWeights` weighs the provider-wide keys: given the account ids behind one key it returns
+    /// each one's weight (`FleetMath.weightLookup`), so a pool mixing plans is paced in the same
+    /// unit its remaining is counted in; nil means the weights are unknown and that key gets NO
+    /// rate (a pace measured in a unit nobody can name would be a wrong verdict). Plan keys are
+    /// never weighted: a plan's members are alike. Without it every account weighs 1.
     static func weeklyRates(samples: [UsageHistory.Sample], now: Date,
-                            planOf: (String) -> String? = { _ in nil }) -> [String: FleetRate] {
+                            planOf: (String) -> String? = { _ in nil },
+                            poolWeights: (([String]) -> [String: Double]?)? = nil)
+        -> [String: FleetRate] {
         let weekly = samples.filter {
             $0.window == MetricKind.weeklyAll.rawValue || $0.window == MetricKind.weeklyModel.rawValue
         }
         var consumed: [String: Double] = [:]
+        var consumedBy: [String: [String: Double]] = [:] // provider-wide key -> account -> used
         var earliest: [String: Date] = [:]
         let bySeries = Dictionary(grouping: weekly) {
             "\($0.account)|" + rateKey(provider: $0.provider, window: $0.window, model: $0.model)
@@ -56,7 +65,8 @@ enum FleetForecast {
             }
             // The provider-wide key accumulates exactly as before; a split provider's account ALSO
             // feeds its plan's own key, so a plan's pool is forecast from that plan's spending only.
-            var keys = [rateKey(provider: first.provider, window: first.window, model: first.model)]
+            let wide = rateKey(provider: first.provider, window: first.window, model: first.model)
+            var keys = [wide]
             if let plan = planOf(first.account) {
                 keys.append(rateKey(provider: first.provider, window: first.window,
                                     model: first.model, plan: plan))
@@ -65,12 +75,18 @@ enum FleetForecast {
                 earliest[key] = min(earliest[key] ?? first.ts, first.ts)
                 consumed[key, default: 0] += used
             }
+            consumedBy[wide, default: [:]][first.account, default: 0] += used
         }
         var rates: [String: FleetRate] = [:]
         for (key, start) in earliest {
             let hours = min(lookbackHours, now.timeIntervalSince(start) / 3_600)
             guard hours >= minimumSampleHours else { continue }
-            rates[key] = FleetRate(perHour: (consumed[key] ?? 0) / hours, sampledHours: hours)
+            var total = consumed[key] ?? 0
+            if let poolWeights, let byAccount = consumedBy[key] {
+                guard let weights = poolWeights(Array(byAccount.keys)) else { continue }
+                total = byAccount.map { $0.value * (weights[$0.key] ?? 1) }.reduce(0, +)
+            }
+            rates[key] = FleetRate(perHour: total / hours, sampledHours: hours)
         }
         return rates
     }

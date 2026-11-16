@@ -112,6 +112,10 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     var providerID: String
     var accountLabel: String
     var planName: String?
+    /// The provider's raw plan code when it reports one apart from the display name (Codex's
+    /// `planType`: "prolite", "pro", "promax"...); the capacity weight is keyed by it. nil for a
+    /// provider whose display name is already the key (`PlanWeight.key(of:)`).
+    var planKey: String? = nil
     /// The signed-in email, when the provider can name it without touching a credential (Claude
     /// reads its plain config file, Codex asks its own app-server - `CodexIdentity.swift`). Shown
     /// as the account card's hover tooltip and on the face of the Settings account row, both

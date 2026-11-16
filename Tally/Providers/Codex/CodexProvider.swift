@@ -44,7 +44,7 @@ struct CodexProvider: UsageProvider {
         }
         return AccountUsage(
             id: account.id, providerID: id, accountLabel: account.label,
-            planName: reading.plan, accountEmail: email, metrics: reading.metrics,
+            planName: reading.plan, planKey: reading.planKey, accountEmail: email, metrics: reading.metrics,
             refreshedAt: Date(), error: nil,
             resetCreditsAvailable: reading.resetCreditsAvailable,
             resetCredits: reading.resetCredits

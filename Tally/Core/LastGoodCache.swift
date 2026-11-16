@@ -21,6 +21,9 @@ struct LastGoodCache: Codable, Equatable {
         var providerID: String
         var accountLabel: String
         var planName: String?
+        /// The raw plan code the capacity weight is keyed by (`AccountUsage.planKey`); absent in
+        /// rows an older build wrote.
+        var planKey: String? = nil
         /// Config home, only to notice at seed time that the account was removed.
         var home: String
         var refreshedAt: Date
@@ -33,7 +36,7 @@ struct LastGoodCache: Codable, Equatable {
         lastGood.values.compactMap { usage in
             homes[usage.id].map {
                 Row(id: usage.id, providerID: usage.providerID, accountLabel: usage.accountLabel,
-                    planName: usage.planName, home: $0, refreshedAt: usage.refreshedAt,
+                    planName: usage.planName, planKey: usage.planKey, home: $0, refreshedAt: usage.refreshedAt,
                     metrics: usage.metrics)
             }
         }
@@ -68,7 +71,7 @@ struct LastGoodCache: Codable, Equatable {
         where now.timeIntervalSince(row.refreshedAt) <= maxAge && homeExists(row.home) {
             let usage = AccountUsage(id: row.id, providerID: row.providerID,
                                      accountLabel: row.accountLabel, planName: row.planName,
-                                     accountEmail: nil, metrics: row.metrics,
+                                     planKey: row.planKey, accountEmail: nil, metrics: row.metrics,
                                      refreshedAt: row.refreshedAt, error: nil)
             seed.lastGood[row.id] = usage
             seed.homes[row.id] = row.home

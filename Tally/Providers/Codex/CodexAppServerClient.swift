@@ -16,6 +16,8 @@ enum CodexAppServerClient {
     struct Reading: Sendable {
         var metrics: [UsageMetric]
         var plan: String?
+        /// The raw `planType` code, lower case: what the capacity weight is keyed by (`CodexPlan`).
+        var planKey: String?
         /// Reset banking (verified live 2026-07-19): `result.rateLimitResetCredits.availableCount`.
         var resetCreditsAvailable: Int?
         /// Every credit listed, with its expiry kept even when null (nil = the list was absent or null).
@@ -102,13 +104,13 @@ enum CodexAppServerClient {
                 resetsAt: window.resetsAt.flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil },
                 isActive: false))
         }
-        let plan = limits.planType?.trimmingCharacters(in: .whitespaces).capitalized
+        let plan = CodexPlan.displayName(planType: limits.planType)
         // The whole list, not its soonest date: a credit whose expiry is null must stay in view
         // as "expiry unknown" rather than be dropped from a min() (`resetCreditsExpiryUnknown`).
         // A missing list stays nil rather than becoming an empty one (`CodexResetBank.listed`).
         let bank = line.result?.rateLimitResetCredits
         return answer(.ok(Reading(
-            metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil,
+            metrics: metrics.uniquingIDs(), plan: plan, planKey: CodexPlan.key(planType: limits.planType),
             resetCreditsAvailable: bank?.availableCount,
             resetCredits: bank?.listed)))
     }

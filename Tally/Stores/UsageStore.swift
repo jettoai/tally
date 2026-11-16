@@ -384,9 +384,11 @@ final class UsageStore {
         TokenStatsStore.shared.refreshIfStale()
         let now = Date()
         let planKeys = FleetMath.planTiers(accounts: labeled).mapValues(\.key) // split gauges' plans
+        let poolWeights = FleetMath.weightLookup(accounts: labeled) // mixed-plan pools pace in weighted units
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-FleetForecast.lookbackHours * 3_600)) { samples in
-            let rates = FleetForecast.weeklyRates(samples: samples, now: now, planOf: { planKeys[$0] })
+            let rates = FleetForecast.weeklyRates(samples: samples, now: now, planOf: { planKeys[$0] },
+                                                  poolWeights: poolWeights)
             Task { @MainActor in
                 UsageStore.shared.fleetRates = rates
                 UsageStore.shared.republishSnapshot() // the snapshot's fleet forecast reads these rates

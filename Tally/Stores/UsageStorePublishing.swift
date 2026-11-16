@@ -16,8 +16,7 @@ extension UsageStore {
         let (fleet, fleetPools) = fleetForSnapshot()
         // Outside the gauge switch and for single-account providers too: this is the one number a
         // reader draws a provider's remaining from, not a pool the panel shows.
-        let weighted = FleetMath.weighted(accounts: lastPublishedAccounts,
-                                          codexProMultiple: Self.codexProMultiple)
+        let weighted = FleetMath.weighted(accounts: lastPublishedAccounts)
             .mapValues { UsageSnapshot.Weighted(remainingPercent: $0.remainingPercent,
                                                 weightSource: $0.source.rawValue) }
         UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
@@ -56,7 +55,10 @@ extension UsageStore {
               pool.nextReset != nil else { return }
         DryPoolNotifier.shared.evaluate(
             remaining: pool.totalRemaining,
-            capacity: Double(pool.members.count) * 100,
+            // Weighted like `remaining`: a flagship pool mixing plans counts a Max seat as five Pro
+            // seats. The multiples are published for overall usage, so reading them onto a model
+            // sub-quota is an assumption (`PlanWeight`).
+            capacity: pool.capacity,
             accountCount: pool.members.count,
             resetAt: pool.nextReset,
             windowName: pool.modelName ?? pool.label)
@@ -65,13 +67,6 @@ extension UsageStore {
     /// The display always leads with the account-wide weekly budget, so there is no model window to
     /// name. Kept as the one seam the menu-bar closures call (`MenuBarSegments`); always nil.
     static func focusedModel(providerID: String, available: [String]) -> String? { nil }
-
-    /// Codex Pro's multiple of Plus as the user set it (`defaults write ai.jetto.tally
-    /// codexProUsageMultiple -int 20`); nil when unset. `double(forKey:)` also reads a string "20".
-    static var codexProMultiple: Double? {
-        let value = UserDefaults.standard.double(forKey: PlanWeight.codexProMultipleKey)
-        return value > 0 ? value : nil
-    }
 
     /// `tally status`'s fleet line follows the SAME switch as the panel's gauge: published
     /// only while the gauge is on, and only for providers with a real pool (2+ accounts with a
@@ -92,10 +87,7 @@ extension UsageStore {
                                            label: { $0.accountLabel }) {
             let focused = Self.focusedModel(providerID: summary.providerID,
                                             available: summary.modelPoolNames)
-            let weight = PlanWeight.weight(
-                providerID: summary.providerID,
-                planName: FleetMath.planName(of: summary, accounts: lastPublishedAccounts),
-                codexProMultiple: Self.codexProMultiple)
+            let weight = FleetMath.planWeight(of: summary, accounts: lastPublishedAccounts)
             func published(_ pool: FleetPool) -> UsageSnapshot.Fleet {
                 var dryAt: Date?
                 var sustainable = false
@@ -112,11 +104,11 @@ extension UsageStore {
                 }
                 return UsageSnapshot.Fleet(
                     remaining: pool.totalRemaining,
-                    capacity: Double(pool.members.count) * 100,
+                    capacity: pool.capacity,
                     dryAt: dryAt, sustainable: sustainable,
                     poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil,
                     plan: summary.planTier.map { $0.name ?? "unknown" },
-                    capacityWeight: weight.value, weightSource: weight.source.rawValue)
+                    capacityWeight: weight?.value, weightSource: weight?.source.rawValue)
             }
             // A provider split by plan has no single headline pool; older CLIs that read only
             // `fleet` then print no pool line for it instead of one plan's pool labelled as the

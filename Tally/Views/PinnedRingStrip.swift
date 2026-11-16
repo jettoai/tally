@@ -3,7 +3,8 @@ import SwiftUI
 /// The pinned panel's rings-only strip: one 28 point ring per account, no text. Accounts of one
 /// provider are told apart by the same-provider number on the ring's lower right (the number the
 /// menu bar and the labeled strip use), and the pointer hovering a ring answers with its name, figure
-/// and countdown. A close button fades in at the top-left corner while the pointer is over the strip.
+/// and countdown. A close button fades in on the top-left corner arc, half of it outside the strip,
+/// while the pointer is over the strip.
 ///
 /// Every inset is `PinnedStripMetrics.edge`, the same on all four sides, and the corner radius is that
 /// inset plus the ring's radius so the end of the strip is concentric with the ring in it. There is
@@ -45,7 +46,7 @@ struct PinnedRingStrip: View {
         .background(PanelBackdrop(settings: .shared, cornerRadius: radius, skin: true))
         .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         .overlay(PanelRim(cornerRadius: radius))
-        .pinnedCloseCorner(visible: hovering)
+        .pinnedCloseCorner(visible: hovering, radius: radius)
         .onHover { hovering = $0 || PinnedCloseButton.forcedVisible }
         .background(sizeReporter)
         // The surface stays against the corner the host holds while the host catches up with the

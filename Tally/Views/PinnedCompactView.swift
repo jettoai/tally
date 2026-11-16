@@ -24,12 +24,13 @@ struct PinnedPanelRoot: View {
                                    hostScreen: hostScreen, hostTopEdge: hostTopEdge,
                                    tabState: tabState, host: host))
         case .labeled:
-            chrome(radius: PinnedStripMetrics.labeledRadius, PinnedCompactView(store: store, settings: settings,
-                                     vertical: settings.pinnedAxis == .vertical,
-                                     onContentSize: onContentSize,
-                                     hostScreen: hostScreen, hostTopEdge: hostTopEdge))
+            // Both strips draw their own chrome: the close button hangs over the clipped edge.
+            PinnedCompactView(store: store, settings: settings,
+                              vertical: settings.pinnedAxis == .vertical,
+                              onContentSize: onContentSize,
+                              hostScreen: hostScreen, hostTopEdge: hostTopEdge)
         case .rings:
-            // Draws its own chrome: its radius follows its ring.
+            // Its radius follows its ring.
             PinnedRingStrip(store: store, settings: settings,
                             vertical: settings.pinnedAxis == .vertical,
                             onContentSize: onContentSize,
@@ -48,13 +49,16 @@ struct PinnedPanelRoot: View {
 /// The numbers the two strips share. One inset, `edge`, between the strip's outer edge and the first
 /// and last thing in it, on all four sides of all four strips (rings or labeled, vertical or
 /// horizontal). The corner radius is that inset plus the ring's radius, which makes the strip's end
-/// concentric with the ring in it, and leaves the annulus between the two exactly `edge` wide for
-/// the close button's 8 points.
+/// concentric with the ring in it. The close button is not inside the strip: its centre sits on the
+/// corner arc at 45 degrees, half of it over the transparent triangle the rounding leaves in the window.
 enum PinnedStripMetrics {
     static let edge: CGFloat = 8
     static let closeDiameter: CGFloat = 8
-    /// Where the close button's top-left sits, so it is centred in that annulus at 45 degrees.
-    static let closeOrigin: CGFloat = 5
+    /// Where the close button's top-left sits for a strip with this corner radius, so its centre is on
+    /// the arc at 45 degrees: the arc is `radius * (1 - 1/sqrt2)` in from the window's corner on both axes.
+    static func closeOrigin(radius: CGFloat) -> CGFloat {
+        radius * (1 - 1 / 2.0.squareRoot()) - closeDiameter / 2
+    }
     static let waitingDotDiameter: CGFloat = 5
     static let ringsRadius = edge + 14
     static let labeledRadius = edge + 11
@@ -72,14 +76,15 @@ struct PinnedDragGap: View {
 }
 
 extension View {
-    /// The close button, faded in at the top-left corner over the strip's own padding: it adds
-    /// nothing to the size reported, and the strip does not move when it comes or goes.
-    func pinnedCloseCorner(visible: Bool) -> some View {
+    /// The close button, faded in on the top-left corner arc (`radius` is the strip's corner radius):
+    /// it adds nothing to the size reported, and the strip does not move when it comes or goes. Put it
+    /// outside the clip and the rim, or they cut and cross it.
+    func pinnedCloseCorner(visible: Bool, radius: CGFloat) -> some View {
         overlay(alignment: .topLeading) {
             if visible {
                 PinnedCloseButton()
-                    .padding(.leading, PinnedStripMetrics.closeOrigin)
-                    .padding(.top, PinnedStripMetrics.closeOrigin)
+                    .padding(.leading, PinnedStripMetrics.closeOrigin(radius: radius))
+                    .padding(.top, PinnedStripMetrics.closeOrigin(radius: radius))
                     .transition(.opacity)
             }
         }
@@ -175,6 +180,7 @@ struct PinnedCompactView: View {
     @State private var hovering = PinnedCloseButton.forcedVisible
 
     var body: some View {
+        let radius = PinnedStripMetrics.labeledRadius
         // Minute-grained countdowns: a 30s tick keeps "3:12" honest without a timer of our own.
         TimelineView(.periodic(from: .now, by: 30)) { timeline in
             strip(PinnedCompactCell.make(store.orderedAccounts, mode: settings.displayMode,
@@ -183,13 +189,16 @@ struct PinnedCompactView: View {
             })
         }
         .fixedSize()
-        .onHover { hovering = $0 || PinnedCloseButton.forcedVisible }
-        .pinnedCloseCorner(visible: hovering)
+        .background(PanelBackdrop(settings: .shared, cornerRadius: radius, skin: true))
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(PanelRim(cornerRadius: radius))
         .overlay(
-            RoundedRectangle(cornerRadius: PinnedStripMetrics.labeledRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(scheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10),
                               lineWidth: 0.5)
                 .allowsHitTesting(false))
+        .pinnedCloseCorner(visible: hovering, radius: radius)
+        .onHover { hovering = $0 || PinnedCloseButton.forcedVisible }
         .background(sizeReporter)
         // The surface stays against the corner the host holds while the host catches up with the
         // size just reported (see `HostAnchored`).
@@ -384,7 +393,7 @@ struct PinnedRing: View {
     }
 }
 
-/// The pinned strip's close button: a 9 point dark disc with an x, faded in while the pointer is over the
+/// The pinned strip's close button: an 8 point disc with an x, faded in while the pointer is over the
 /// strip. A press that travels moves the window (the usual grab behaviour); one that stays put unpins.
 struct PinnedCloseButton: View {
     @Environment(\.colorScheme) private var scheme
